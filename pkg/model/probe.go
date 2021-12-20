@@ -15,9 +15,7 @@ limitations under the License.
 */
 package model
 
-import (
-	"github.com/Gui774ume/ebpf"
-)
+import "github.com/Gui774ume/ebpf"
 
 // Probe - eBPF probe structure
 type Probe struct {

@@ -16,9 +16,10 @@ limitations under the License.
 package model
 
 import (
-	"github.com/Gui774ume/ebpf"
 	"sync"
 	"time"
+
+	"github.com/Gui774ume/ebpf"
 )
 
 type FSProbe interface {

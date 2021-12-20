@@ -22,11 +22,12 @@ import (
 	"fmt"
 	"unsafe"
 
-	"github.com/Gui774ume/ebpf"
-	"github.com/Gui774ume/fsprobe/pkg/utils"
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
+	"github.com/Gui774ume/ebpf"
+	"github.com/Gui774ume/fsprobe/pkg/utils"
 )
 
 // DentryResolver - Path resolver for the path fragments and single fragment methods

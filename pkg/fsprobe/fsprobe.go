@@ -1,5 +1,6 @@
 /*
 Copyright © 2020 GUILLAUME FOURNIER
+Copyright 2021 The fsprobe Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -29,11 +30,11 @@ import (
 	"time"
 
 	"github.com/DataDog/gopsutil/host"
-	"github.com/Gui774ume/ebpf"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
+	"github.com/Gui774ume/ebpf"
 	"github.com/Gui774ume/fsprobe/pkg/assets"
 	"github.com/Gui774ume/fsprobe/pkg/fsprobe/monitor"
 	"github.com/Gui774ume/fsprobe/pkg/model"
@@ -181,12 +182,9 @@ func (fsp *FSProbe) compileEBPFProgram() error {
 // loadEBPFProgram - Loads the compiled eBPF programs
 func (fsp *FSProbe) loadEBPFProgram() error {
 	// Recover asset
-	buf, err := assets.Asset("/probe.o")
-	if err != nil {
-		return errors.Wrap(err, "couldn't find asset")
-	}
-	reader := bytes.NewReader(buf)
+	reader := bytes.NewReader(assets.Probe)
 	// Load elf CollectionSpec
+	var err error
 	fsp.collectionSpec, err = ebpf.LoadCollectionSpecFromReader(reader)
 	if err != nil {
 		return errors.Wrap(err, "couldn't load collection spec")

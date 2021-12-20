@@ -18,8 +18,9 @@ package model
 import (
 	"os"
 
-	"github.com/Gui774ume/ebpf"
 	"github.com/pkg/errors"
+
+	"github.com/Gui774ume/ebpf"
 )
 
 type LostEvt struct {

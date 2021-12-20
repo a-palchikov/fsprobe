@@ -17,10 +17,11 @@ package model
 
 import (
 	"fmt"
-	"github.com/Gui774ume/fsprobe/pkg/utils"
 	"sync"
 
 	"github.com/Gui774ume/ebpf"
+	"github.com/Gui774ume/fsprobe/pkg/utils"
+
 	"github.com/sirupsen/logrus"
 )
 

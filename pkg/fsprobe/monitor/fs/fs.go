@@ -17,9 +17,11 @@ package fs
 
 import (
 	"C"
+
+	"github.com/sirupsen/logrus"
+
 	"github.com/Gui774ume/ebpf"
 	"github.com/Gui774ume/fsprobe/pkg/model"
-	"github.com/sirupsen/logrus"
 )
 
 var (

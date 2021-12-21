@@ -49,7 +49,7 @@ __attribute__((always_inline)) static int trace_rename(struct pt_regs *ctx, stru
     data_cache->target_dentry = new_dentry;
 
     // Filter
-    if (filter(data_cache, FILTER_SRC) ||filter(data_cache, FILTER_TARGET) ) {
+    if (match(data_cache, FILTER_SRC) || match(data_cache, FILTER_TARGET)) {
         // Resolve source
         resolve_paths(ctx, data_cache, RESOLVE_SRC);
         // Send to cache

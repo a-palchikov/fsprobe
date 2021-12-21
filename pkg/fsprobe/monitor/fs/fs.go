@@ -30,14 +30,14 @@ var (
 		Name:               "FileSystem",
 		InodeFilterSection: model.InodesFilterMap,
 		ResolutionModeMaps: map[model.DentryResolutionMode][]string{
-			model.DentryResolutionFragments: []string{
+			model.DentryResolutionFragments: {
 				model.PathFragmentsMap,
 				model.FSEventsMap,
 				model.DentryCacheMap,
 				model.DentryCacheBuilderMap,
 				model.InodesFilterMap,
 			},
-			model.DentryResolutionSingleFragment: []string{
+			model.DentryResolutionSingleFragment: {
 				model.SingleFragmentsMap,
 				model.CachedInodesMap,
 				model.FSEventsMap,
@@ -46,7 +46,7 @@ var (
 				model.PathsBuilderMap,
 				model.InodesFilterMap,
 			},
-			model.DentryResolutionPerfBuffer: []string{
+			model.DentryResolutionPerfBuffer: {
 				model.CachedInodesMap,
 				model.FSEventsMap,
 				model.DentryCacheMap,
@@ -56,8 +56,8 @@ var (
 			},
 		},
 		Probes: map[model.EventName][]*model.Probe{
-			model.Open: []*model.Probe{
-				&model.Probe{
+			model.Open: {
+				{
 					Name:        "open",
 					SectionName: "kprobe/vfs_open",
 					Enabled:     false,
@@ -66,7 +66,7 @@ var (
 						model.InodeFilteringModeConst,
 					},
 				},
-				&model.Probe{
+				{
 					Name:        "open_ret",
 					SectionName: "kretprobe/vfs_open",
 					Enabled:     false,
@@ -76,8 +76,8 @@ var (
 					},
 				},
 			},
-			model.Mkdir: []*model.Probe{
-				&model.Probe{
+			model.Mkdir: {
+				{
 					Name:        "mkdir",
 					SectionName: "kprobe/vfs_mkdir",
 					Enabled:     false,
@@ -86,7 +86,7 @@ var (
 						model.InodeFilteringModeConst,
 					},
 				},
-				&model.Probe{
+				{
 					Name:        "mkdir_ret",
 					SectionName: "kretprobe/vfs_mkdir",
 					Enabled:     false,
@@ -97,8 +97,8 @@ var (
 					},
 				},
 			},
-			model.Unlink: []*model.Probe{
-				&model.Probe{
+			model.Unlink: {
+				{
 					Name:        "unlink",
 					SectionName: "kprobe/vfs_unlink",
 					Enabled:     false,
@@ -107,7 +107,7 @@ var (
 						model.InodeFilteringModeConst,
 					},
 				},
-				&model.Probe{
+				{
 					Name:        "unlink_ret",
 					SectionName: "kretprobe/vfs_unlink",
 					Enabled:     false,
@@ -117,8 +117,8 @@ var (
 					},
 				},
 			},
-			model.Rmdir: []*model.Probe{
-				&model.Probe{
+			model.Rmdir: {
+				{
 					Name:        "rmdir",
 					SectionName: "kprobe/vfs_rmdir",
 					Enabled:     false,
@@ -127,7 +127,7 @@ var (
 						model.InodeFilteringModeConst,
 					},
 				},
-				&model.Probe{
+				{
 					Name:        "rmdir_ret",
 					SectionName: "kretprobe/vfs_rmdir",
 					Enabled:     false,
@@ -137,8 +137,8 @@ var (
 					},
 				},
 			},
-			model.Link: []*model.Probe{
-				&model.Probe{
+			model.Link: {
+				{
 					Name:        "link",
 					SectionName: "kprobe/vfs_link",
 					Enabled:     false,
@@ -148,7 +148,7 @@ var (
 						model.InodeFilteringModeConst,
 					},
 				},
-				&model.Probe{
+				{
 					Name:        "link_ret",
 					SectionName: "kretprobe/vfs_link",
 					Enabled:     false,
@@ -158,8 +158,8 @@ var (
 					},
 				},
 			},
-			model.Rename: []*model.Probe{
-				&model.Probe{
+			model.Rename: {
+				{
 					Name:        "rename",
 					SectionName: "kprobe/vfs_rename",
 					Enabled:     false,
@@ -169,7 +169,7 @@ var (
 						model.InodeFilteringModeConst,
 					},
 				},
-				&model.Probe{
+				{
 					Name:        "rename_ret",
 					SectionName: "kretprobe/vfs_rename",
 					Enabled:     false,
@@ -180,8 +180,8 @@ var (
 					},
 				},
 			},
-			model.Modify: []*model.Probe{
-				&model.Probe{
+			model.Modify: {
+				{
 					Name:        "modify",
 					SectionName: "kprobe/__fsnotify_parent",
 					Enabled:     false,
@@ -190,7 +190,7 @@ var (
 						model.InodeFilteringModeConst,
 					},
 				},
-				&model.Probe{
+				{
 					Name:        "modify_ret",
 					SectionName: "kretprobe/__fsnotify_parent",
 					Enabled:     false,
@@ -200,8 +200,8 @@ var (
 					},
 				},
 			},
-			model.SetAttr: []*model.Probe{
-				&model.Probe{
+			model.SetAttr: {
+				{
 					Name:        "setattr",
 					SectionName: "kprobe/security_inode_setattr",
 					Enabled:     false,
@@ -210,7 +210,7 @@ var (
 						model.InodeFilteringModeConst,
 					},
 				},
-				&model.Probe{
+				{
 					Name:        "setattr_ret",
 					SectionName: "kretprobe/security_inode_setattr",
 					Enabled:     false,
@@ -222,7 +222,7 @@ var (
 			},
 		},
 		PerfMaps: []*model.PerfMap{
-			&model.PerfMap{
+			{
 				UserSpaceBufferLen: 1000,
 				PerfOutputMapName:  "fs_events",
 				DataHandler:        HandleFSEvent,
@@ -255,24 +255,24 @@ func HandleFSEvent(data []byte, monitor *model.Monitor) {
 	// Take cleanup actions on the cache
 	switch event.EventType {
 	case model.Unlink:
-		switch monitor.Options.DentryResolutionMode {
-		case model.DentryResolutionSingleFragment:
-			if err := monitor.DentryResolver.RemoveEntry(event.SrcPathnameKey); err != nil {
-				logrus.Warnf("couldn't clear cache: %v", err)
-			}
-		case model.DentryResolutionPerfBuffer:
-			if err := monitor.DentryResolver.RemoveEntry(uint32(event.SrcInode)); err != nil {
-				logrus.Warnf("couldn't clear cache: %v", err)
-			}
-		case model.DentryResolutionFragments:
-			if err := monitor.DentryResolver.RemoveInode(event.SrcMountID, event.SrcInode); err != nil {
-				logrus.Warnf("couldn't clear cache: %v", err)
-			}
+		switch resolver := monitor.DentryResolver.(type) {
+		case *model.SingleFragmentResolver:
+			err = resolver.RemoveEntry(event.SrcPathnameKey)
+		case *model.PerfBufferResolver:
+			err = resolver.RemoveEntry(uint32(event.SrcInode))
+		case *model.PathFragmentsResolver:
+			err = resolver.RemoveInode(event.SrcMountID, event.SrcInode)
+		}
+		if err != nil {
+			logrus.WithError(err).Warn("Failed to clear cache.")
 		}
 	}
 
 	// Dispatch event
 	if monitor.Options.EventChan != nil {
-		monitor.Options.EventChan <- event
+		select {
+		case monitor.Options.EventChan <- event:
+		default:
+		}
 	}
 }

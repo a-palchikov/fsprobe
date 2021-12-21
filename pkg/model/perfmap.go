@@ -87,23 +87,21 @@ func (pm *PerfMap) pollStart() error {
 // listen - Listen for new events from the kernel
 func (pm *PerfMap) listen() {
 	pm.monitor.wg.Add(1)
+	defer pm.monitor.wg.Done()
 	var sample *ebpf.PerfSample
 	var ok bool
 	var lostCount uint64
 	for {
 		select {
 		case <-pm.stop:
-			pm.monitor.wg.Done()
 			return
 		case sample, ok = <-pm.perfReader.Samples:
 			if !ok {
-				pm.monitor.wg.Done()
 				return
 			}
 			pm.DataHandler(sample.Data, pm.monitor)
 		case lostCount, ok = <-pm.perfReader.LostRecords:
 			if !ok {
-				pm.monitor.wg.Done()
 				return
 			}
 			if pm.LostHandler != nil {

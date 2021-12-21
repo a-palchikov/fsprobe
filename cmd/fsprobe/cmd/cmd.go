@@ -16,6 +16,9 @@ limitations under the License.
 package cmd
 
 import (
+	"os"
+
+	"github.com/Gui774ume/fsprobe/pkg/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -27,14 +30,28 @@ var FSProbeCmd = &cobra.Command{
 
 FSProbe relies on eBPF to capture file system events on dentry kernel structures.
 More information about the project can be found on github: https://github.com/Gui774ume/fsprobe`,
-	RunE:    runFSProbeCmd,
-	Example: "sudo fsprobe /tmp",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := runFSProbeCmd(cmd, args); err != nil {
+			utils.DebugReport(os.Stderr, err)
+			return err
+		}
+		return nil
+	},
+	SilenceUsage: true,
+	Example:      "sudo fsprobe /tmp",
 }
 
 // options - CLI options
 var options CLIOptions
 
 func init() {
+	FSProbeCmd.Flags().BoolVar(
+		&options.UsermodeFiltering,
+		"usermode-filtering",
+		false,
+		`When activated, FSProbe will filter events on the paths 
+in user-mode. In this mode, the FSProbe kernel programs notify on the entire file system.
+It is possible to watch on the paths that do not yet exist`)
 	FSProbeCmd.Flags().Var(
 		NewDentryResolutionModeValue(&options.FSOptions.DentryResolutionMode),
 		"dentry-resolution-mode",

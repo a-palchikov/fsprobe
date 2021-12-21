@@ -21,12 +21,15 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"reflect"
 	"strconv"
 	"strings"
 	"unsafe"
+
+	"github.com/pkg/errors"
 )
 
 // GetPpid is a fallback to read the parent PID from /proc.
@@ -183,4 +186,19 @@ func Bytes(str string) []byte {
 		Len:  hdr.Len,
 		Cap:  hdr.Len,
 	}))
+}
+
+// DebugReport outputs the given error to the specifie writer.
+// If the error supports stack trace capture, the output will
+// include the stack trace
+func DebugReport(w io.Writer, err error) {
+	type stackTracer interface {
+		StackTrace() errors.StackTrace
+	}
+	fmt.Fprintln(w, err.Error())
+	if err, ok := err.(stackTracer); ok {
+		for _, f := range err.StackTrace() {
+			fmt.Fprintf(w, "%+s:%d\n", f, f)
+		}
+	}
 }

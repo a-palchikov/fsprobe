@@ -67,7 +67,6 @@ func NewFSProbeWithOptions(options model.FSProbeOptions) *FSProbe {
 	}
 	return &FSProbe{
 		options: &options,
-		paths:   []string{},
 		wg:      &sync.WaitGroup{},
 	}
 }
@@ -240,20 +239,23 @@ func (fsp *FSProbe) addWatch(paths ...string) error {
 func (fsp *FSProbe) addTopLevelWatch(paths ...string) error {
 	for _, p := range paths {
 		// Check if the path is a directory
-		pathInfo, err := os.Stat(p)
-		if err != nil {
-			return err
+		pathInfo, err := os.Lstat(p)
+		if err != nil && !os.IsNotExist(err) {
+			return errors.Wrapf(err, "failed to stat %s", p)
+		}
+		if pathInfo == nil {
+			continue
 		}
 		if pathInfo.IsDir() {
 			// List the top level of the directory
 			files, err := ioutil.ReadDir(p)
 			if err != nil {
-				return err
+				return errors.WithStack(err)
 			}
 			for _, f := range files {
 				fullPath := path.Join(p, f.Name())
 				statTmp, ok := f.Sys().(*syscall.Stat_t)
-				if !ok && statTmp == nil {
+				if !ok {
 					continue
 				}
 				// Add inode in cache
@@ -262,7 +264,7 @@ func (fsp *FSProbe) addTopLevelWatch(paths ...string) error {
 		}
 		// Add the file (or directory itself) to the list of watched files
 		pathStat, ok := pathInfo.Sys().(*syscall.Stat_t)
-		if !ok && pathStat == nil {
+		if !ok {
 			continue
 		}
 		// Add file in cache
@@ -277,14 +279,14 @@ func (fsp *FSProbe) addRecursiveWatch(paths ...string) error {
 	for _, path := range paths {
 		err = filepath.Walk(path, func(walkPath string, fi os.FileInfo, err error) error {
 			if err != nil {
-				logrus.Warnf("couldn't add watch for %s: %v", walkPath, err)
+				logrus.Warnf("Failed to add watch for %s: %v.", walkPath, err)
 				return nil
 			}
 			if !fi.IsDir() {
 				return fsp.addTopLevelWatch([]string{walkPath}...)
 			}
 			stat, ok := fi.Sys().(*syscall.Stat_t)
-			if !ok && stat == nil {
+			if !ok {
 				return nil
 			}
 			// Add inode in cache
@@ -303,7 +305,11 @@ func (fsp *FSProbe) watchInode(inode uint32, path string) {
 	for _, m := range fsp.monitors {
 		// Add inode filter
 		if err := m.AddInodeFilter(inode, path); err != nil {
-			logrus.Warnf("couldn't watch inode %v of path %s: %v", inode, path, err)
+			logrus.WithFields(logrus.Fields{
+				logrus.ErrorKey: err,
+				"inode":         inode,
+				"path":          path,
+			}).Warn("Failed to watch inode.")
 			continue
 		}
 	}

@@ -32,10 +32,6 @@ import (
 
 // DentryResolver - Path resolver for the path fragments and single fragment methods
 type DentryResolver interface {
-	ResolveInode(mountID uint32, inode uint64) (string, error)
-	RemoveInode(mountID uint32, inode uint64) error
-	ResolveKey(key uint32, length uint32) (string, error)
-	RemoveEntry(key uint32) error
 	AddCacheEntry(key uint32, value interface{}) error
 }
 
@@ -180,18 +176,8 @@ func (pfr *PathFragmentsResolver) RemoveInode(mountID uint32, inode uint64) erro
 	return pfr.cache.Delete(keyB)
 }
 
-// ResolveKey - Does nothing
-func (pfr *PathFragmentsResolver) ResolveKey(key uint32, length uint32) (string, error) {
-	return "", nil
-}
-
 // AddCacheEntry - Adds a new entry in the user space cache
 func (pfr *PathFragmentsResolver) AddCacheEntry(key uint32, value interface{}) error {
-	return nil
-}
-
-// RemoveEntry - Removes an entry from the cache
-func (pfr *PathFragmentsResolver) RemoveEntry(key uint32) error {
 	return nil
 }
 
@@ -256,16 +242,6 @@ func NewSingleFragmentResolver(monitor *Monitor) (*SingleFragmentResolver, error
 		key:   &SingleFragmentKey{},
 		value: &SingleFragmentValue{},
 	}, nil
-}
-
-// ResolveInode - Does nothing
-func (sfr *SingleFragmentResolver) ResolveInode(mountID uint32, inode uint64) (filename string, err error) {
-	return "", nil
-}
-
-// RemoveInode - Removes a pathname from the kernel cache using the provided mount id and inode
-func (sfr *SingleFragmentResolver) RemoveInode(mountID uint32, inode uint64) error {
-	return nil
 }
 
 // Resolve - Resolves a pathname from the provided mount id and inode
@@ -338,16 +314,6 @@ func NewPerfBufferResolver(monitor *Monitor) (*PerfBufferResolver, error) {
 	return &pbr, nil
 }
 
-// ResolveInode - Does nothing
-func (pbr *PerfBufferResolver) ResolveInode(mountID uint32, inode uint64) (filename string, err error) {
-	return "", nil
-}
-
-// RemoveInode - Removes a pathname from the kernel cache using the provided mount id and inode
-func (pbr *PerfBufferResolver) RemoveInode(mountID uint32, inode uint64) error {
-	return nil
-}
-
 // Resolve - Resolves a pathname from the provided key (length is not used)
 func (pbr *PerfBufferResolver) ResolveKey(key uint32, length uint32) (string, error) {
 	// Select the inode path from the lru
@@ -390,11 +356,11 @@ func (pbr *PerfBufferResolver) onCachedInodeEvicted(key, value interface{}) {
 	keyB := make([]byte, 4)
 	keyU, ok := key.(uint32)
 	if !ok {
-		logrus.Warnf("failed to delete entry from cached_inodes eBPF map: key is not uint32: %v", key)
+		logrus.Warnf("Failed to delete entry from cached_inodes eBPF map: key is not uint32: %v", key)
 	}
 	utils.ByteOrder.PutUint32(keyB, keyU)
 	if err := pbr.kernelLRU.Delete(keyB); err != nil {
-		logrus.Warnf("failed to delete entry from cached_inodes eBPF map: %v", err)
+		logrus.Warnf("Failed to delete entry from cached_inodes eBPF map: %v", err)
 	}
 }
 

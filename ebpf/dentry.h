@@ -309,7 +309,7 @@ __attribute__((always_inline)) static u32 resolve_fragments(struct pt_regs *ctx,
     return 0;
 }
 
-// resolve_single_fragment - Resolves the paths of an event using the single fragment method. This method resolves the each path in
+// resolve_single_fragment - Resolves the paths of an event using the single fragment method. This method resolves each path in
 // one entry of the single_fragments hashmap. The key used to refer to each entry is a random number sent back to user space
 // through the fs_events perf event buffer.
 // @ctx: pointer to the registers context structure used to send the perf event.
@@ -361,7 +361,6 @@ __attribute__((always_inline)) static u32 resolve_single_fragment(struct pt_regs
 // resolve_paths - Resolves the requested paths following to the resolution mode.
 // @ctx: pointer to the registers context structure used to send the perf event.
 // @cache: pointer to the dentry_cache_t structure that contains the source and target dentry to resolve
-// @fs_event: pointer to an fs_event structure on the stack of the eBPF program that will be used to send the perf event
 // flag: defines what dentry should be resolved.
 __attribute__((always_inline)) static int resolve_paths(struct pt_regs *ctx, struct dentry_cache_t *cache, u8 flag) {
     u32 ret = 0;

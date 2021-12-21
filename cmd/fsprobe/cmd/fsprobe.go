@@ -16,12 +16,11 @@ limitations under the License.
 package cmd
 
 import (
-	"errors"
-	"fmt"
 	"os"
 	"os/signal"
+	"syscall"
 
-	"github.com/sirupsen/logrus"
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 
 	"github.com/Gui774ume/fsprobe/pkg/fsprobe"
@@ -36,7 +35,7 @@ func runFSProbeCmd(cmd *cobra.Command, args []string) error {
 	// 1) Prepare events output handler
 	output, err := NewOutput(options)
 	if err != nil {
-		logrus.Fatalf("couldn't create FSEvent output: %v", err)
+		return errors.Wrap(err, "failed to create FSEvent output")
 	}
 
 	// 2) Set the output channel to FSProbe's output channel
@@ -47,8 +46,13 @@ func runFSProbeCmd(cmd *cobra.Command, args []string) error {
 	probe := fsprobe.NewFSProbeWithOptions(options.FSOptions)
 
 	// 4) Start listening for events
+	if options.UsermodeFiltering {
+		// 4.1) Turn on user-mode filtering
+		args = []string(nil)
+	}
+
 	if err := probe.Watch(args...); err != nil {
-		logrus.Fatalf("couldn't start watching the filesystem: %v", err)
+		return errors.Wrap(err, "failed to watch the filesystem")
 	}
 
 	// 5) Wait until interrupt signal
@@ -56,7 +60,7 @@ func runFSProbeCmd(cmd *cobra.Command, args []string) error {
 
 	// Stop fsprobe
 	if err := probe.Stop(); err != nil {
-		logrus.Fatalf("couldn't gracefully shutdown fsprobe: %v", err)
+		return errors.Wrap(err, "failed to gracefully shutdown fsprobe")
 	}
 
 	// Close the output
@@ -72,13 +76,15 @@ func sanitizeOptions(args []string) error {
 	if len(args) > 0 {
 		options.FSOptions.PathsFiltering = true
 	}
+	if options.UsermodeFiltering {
+		options.FSOptions.PathsFiltering = false
+	}
 	return nil
 }
 
 // wait - Waits until an interrupt or kill signal is sent
 func wait() {
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, os.Kill)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	<-sig
-	fmt.Println()
 }

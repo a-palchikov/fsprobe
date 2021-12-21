@@ -19,10 +19,10 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/Gui774ume/ebpf"
 	"github.com/Gui774ume/fsprobe/pkg/utils"
-
-	"github.com/sirupsen/logrus"
 )
 
 // Monitor - Base monitor
@@ -141,7 +141,7 @@ func (m *Monitor) Stop() error {
 }
 
 func (m *Monitor) AddInodeFilter(inode uint32, path string) error {
-	// Add file in caches
+	// Add file in cache
 	if m.DentryResolver != nil {
 		if err := m.DentryResolver.AddCacheEntry(inode, path); err != nil {
 			return err
@@ -150,7 +150,7 @@ func (m *Monitor) AddInodeFilter(inode uint32, path string) error {
 	// Add inode filter
 	filter := m.GetMap(m.InodeFilterSection)
 	if filter == nil {
-		return fmt.Errorf("couldn't find %v map", m.InodeFilterSection)
+		return fmt.Errorf("invalid map %s", m.InodeFilterSection)
 	}
 	keyB := make([]byte, 4)
 	utils.ByteOrder.PutUint32(keyB, inode)

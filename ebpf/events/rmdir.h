@@ -44,7 +44,7 @@ __attribute__((always_inline)) static int trace_rmdir(struct pt_regs *ctx, struc
     data_cache->src_dentry = dentry;
 
     // Filter
-    if (!filter(data_cache, FILTER_SRC))
+    if (!match(data_cache, FILTER_SRC))
         return 0;
 
     // Send to cache

@@ -19,10 +19,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"io"
 	"os"
+	"strings"
 	"sync"
+
+	"github.com/sirupsen/logrus"
 
 	"github.com/Gui774ume/fsprobe/pkg/model"
 )
@@ -30,10 +32,11 @@ import (
 type Output struct {
 	EvtChan  chan *model.FSEvent
 	LostChan chan *model.LostEvt
-	wg       *sync.WaitGroup
-	ctx      context.Context
-	cancel   context.CancelFunc
-	writer   OutputWriter
+
+	wg     sync.WaitGroup
+	ctx    context.Context
+	cancel context.CancelFunc
+	writer OutputWriter
 }
 
 // NewOutput - Returns an output instance configured with the requested format & output
@@ -42,11 +45,13 @@ func NewOutput(options CLIOptions) (*Output, error) {
 	if err != nil {
 		return nil, err
 	}
+	if options.UsermodeFiltering {
+		writer = newFilteringWriter(writer, options.Paths)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	output := Output{
 		EvtChan:  make(chan *model.FSEvent, options.FSOptions.UserSpaceChanSize),
 		LostChan: make(chan *model.LostEvt, options.FSOptions.UserSpaceChanSize),
-		wg:       &sync.WaitGroup{},
 		ctx:      ctx,
 		cancel:   cancel,
 		writer:   writer,
@@ -57,28 +62,23 @@ func NewOutput(options CLIOptions) (*Output, error) {
 
 func (o *Output) Callback() {
 	o.wg.Add(1)
-	var evt *model.FSEvent
-	var lost *model.LostEvt
-	var ok bool
+	defer o.wg.Done()
 	var count int
 	for {
 		select {
 		case <-o.ctx.Done():
 			logrus.Printf("%v events captured", count)
-			o.wg.Done()
 			return
-		case lost, ok = <-o.LostChan:
+		case lost, ok := <-o.LostChan:
 			if !ok {
 				logrus.Printf("%v events captured", count)
-				o.wg.Done()
 				return
 			}
 			logrus.Warnf("lost %v events from %v", lost.Count, lost.Map)
 			break
-		case evt, ok = <-o.EvtChan:
+		case evt, ok := <-o.EvtChan:
 			if !ok {
 				logrus.Printf("%v events captured", count)
-				o.wg.Done()
 				return
 			}
 			count++
@@ -97,6 +97,7 @@ func (o *Output) Start() {
 
 func (o *Output) Close() {
 	o.cancel()
+	// TODO(dima): these should be closed on the sender's side
 	close(o.EvtChan)
 	close(o.LostChan)
 	o.wg.Wait()
@@ -194,4 +195,34 @@ type DummyOutput struct{}
 // Write - Write the event to the output writer
 func (do DummyOutput) Write(event *model.FSEvent) error {
 	return nil
+}
+
+func newFilteringWriter(writer OutputWriter, paths []string) OutputWriter {
+	return &filteringWriter{
+		paths: paths,
+		w:     writer,
+	}
+}
+
+func (r *filteringWriter) Write(event *model.FSEvent) error {
+	if !r.matchesAny(event.SrcFilename, event.TargetFilename) {
+		return nil
+	}
+	return r.w.Write(event)
+}
+
+func (r *filteringWriter) matchesAny(filenames ...string) bool {
+	for _, p := range r.paths {
+		for _, filename := range filenames {
+			if filename != "" && strings.HasPrefix(filename, p) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+type filteringWriter struct {
+	w     OutputWriter
+	paths []string
 }

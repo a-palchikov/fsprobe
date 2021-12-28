@@ -18,8 +18,10 @@ package cmd
 import (
 	"os"
 
-	"github.com/Gui774ume/fsprobe/pkg/utils"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+
+	"github.com/Gui774ume/fsprobe/pkg/utils"
 )
 
 // FSProbeCmd represents the base command when called without any subcommands
@@ -31,6 +33,9 @@ var FSProbeCmd = &cobra.Command{
 FSProbe relies on eBPF to capture file system events on dentry kernel structures.
 More information about the project can be found on github: https://github.com/Gui774ume/fsprobe`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if options.Verbose {
+			logrus.SetLevel(logrus.DebugLevel)
+		}
 		if err := runFSProbeCmd(cmd, args); err != nil {
 			utils.DebugReport(os.Stderr, err)
 			return err
@@ -52,6 +57,15 @@ func init() {
 		`When activated, FSProbe will filter events on the paths 
 in user-mode. In this mode, the FSProbe kernel programs notify on the entire file system.
 It is possible to watch on the paths that do not yet exist`)
+	FSProbeCmd.Flags().StringSliceVar(
+		&options.FSOptions.Paths,
+		"path-filter",
+		nil,
+		`When specified, only event hits along this path will be generated.
+For each path filter, only top-level watches along the filter are added.
+If a filter specifies a file, in the file's directory only the file
+will be watched (along with all files in all preceeding sub-directories).
+Filter can specify a path that does not yet exist`)
 	FSProbeCmd.Flags().Var(
 		NewDentryResolutionModeValue(&options.FSOptions.DentryResolutionMode),
 		"dentry-resolution-mode",
@@ -116,4 +130,10 @@ Options are: table, json, none`)
 		"",
 		`Outputs events to the provided file rather than
 stdout`)
+	FSProbeCmd.Flags().BoolVarP(
+		&options.Verbose,
+		"verbose",
+		"v",
+		false,
+		`Increase logging verbosity`)
 }

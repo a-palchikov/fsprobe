@@ -17,7 +17,11 @@ package fs
 
 import (
 	"C"
+	"path/filepath"
+	"strings"
 
+	"github.com/c9s/goprocinfo/linux"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
 	"github.com/Gui774ume/ebpf"
@@ -225,7 +229,6 @@ var (
 			{
 				UserSpaceBufferLen: 1000,
 				PerfOutputMapName:  "fs_events",
-				DataHandler:        HandleFSEvent,
 				LostHandler:        LostFSEvent,
 			},
 		},
@@ -243,36 +246,164 @@ func LostFSEvent(count uint64, mapName string, monitor *model.Monitor) {
 	}
 }
 
-// HandleFSEvent - Handles a file system event
-func HandleFSEvent(data []byte, monitor *model.Monitor) {
-	// Prepare event
-	event, err := model.ParseFSEvent(data, monitor)
+func NewFSEventHandler(paths, pathFilter []string) (*FSEventHandler, error) {
+	mounts, err := linux.ReadMounts("/proc/mounts")
 	if err != nil {
-		logrus.Warnf("couldn't parse FSEvent: %v", err)
+		return nil, errors.Wrap(err, "failed to read mounts")
+	}
+	return &FSEventHandler{
+		pathFilters: resolveMounts(pathFilter, mounts.Mounts),
+		paths:       paths,
+	}, nil
+}
+
+type FSEventHandler struct {
+	pathFilters []resolvedPath
+	paths       []string
+}
+
+type openFlag = model.OpenFlag
+
+// HandleFSEvent - Handles a file system event
+func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
+	// Take cleanup actions on the cache
+	logger := logrus.WithFields(logrus.Fields{
+		"path": event.SrcFilename,
+		"type": event.EventType,
+	})
+	logger.Info("New event.")
+	var err error
+	var matched bool
+	switch event.EventType {
+	case model.Open:
+		if openFlag(event.Flags)&model.OCREAT != 0 {
+			matched, err = r.maybeAddInodeFilter(monitor, uint32(event.SrcInode), event.SrcFilename, logger)
+			if err != nil {
+				logger.WithError(err).Warn("Failed to add inode filter.")
+			}
+		}
+	case model.Mkdir:
+		matched, err = r.maybeAddInodeFilter(monitor, uint32(event.SrcInode), event.SrcFilename, logger)
+		if err != nil {
+			logger.WithError(err).Warn("Failed to add inode filter.")
+		}
+	case model.Rename:
+		matched, err = r.maybeAddInodeFilter(monitor, uint32(event.TargetInode), event.TargetFilename, logger.WithField("target", event.TargetFilename))
+		if err != nil {
+			logger.WithError(err).Warn("Failed to add inode filter.")
+		}
+		if err := removeCacheEntry(event, monitor); err != nil {
+			logrus.WithError(err).Warn("Failed to remove entry from cache.")
+		}
+	case model.Unlink, model.Rmdir:
+		if err := removeCacheEntry(event, monitor); err != nil {
+			logrus.WithError(err).Warn("Failed to remove entry from cache.")
+		}
+	}
+
+	if !matched {
 		return
 	}
 
-	// Take cleanup actions on the cache
-	switch event.EventType {
-	case model.Unlink:
-		switch resolver := monitor.DentryResolver.(type) {
-		case *model.SingleFragmentResolver:
-			err = resolver.RemoveEntry(event.SrcPathnameKey)
-		case *model.PerfBufferResolver:
-			err = resolver.RemoveEntry(uint32(event.SrcInode))
-		case *model.PathFragmentsResolver:
-			err = resolver.RemoveInode(event.SrcMountID, event.SrcInode)
-		}
-		if err != nil {
-			logrus.WithError(err).Warn("Failed to clear cache.")
+	// Dispatch event
+	select {
+	case monitor.Options.EventChan <- event:
+	default:
+	}
+}
+
+// maybeAddInodeFilter adds a new inode filter at the specified path
+// if the path matches one of the filters.
+// Returns true for a match, false - otherwise
+func (r *FSEventHandler) maybeAddInodeFilter(monitor *model.Monitor, inode uint32, path string, logger logrus.FieldLogger) (matched bool, err error) {
+	for _, f := range r.pathFilters {
+		if f.matches(path) {
+			err := monitor.AddInodeFilter(inode, path)
+			logger.WithError(err).Info("Added new inode filter.")
+			return true, err
 		}
 	}
+	logger.Info("No match.")
+	return false, nil
+}
 
-	// Dispatch event
-	if monitor.Options.EventChan != nil {
-		select {
-		case monitor.Options.EventChan <- event:
-		default:
+func removeCacheEntry(event *model.FSEvent, m *model.Monitor) error {
+	switch resolver := m.DentryResolver.(type) {
+	case *model.SingleFragmentResolver:
+		return resolver.RemoveEntry(event.SrcPathnameKey)
+	case *model.PerfBufferResolver:
+		return resolver.RemoveEntry(uint32(event.SrcInode))
+	case *model.PathFragmentsResolver:
+		return resolver.RemoveInode(event.SrcMountID, event.SrcInode)
+	}
+	return nil
+}
+
+// matches determines whether filename matches any of the watched paths.
+// expects filename != ""
+func (r *FSEventHandler) matches(filename string) bool {
+	for _, f := range r.pathFilters {
+		if f.matches(filename) {
+			return true
 		}
+	}
+	return false
+}
+
+func resolveMounts(paths []string, mounts []linux.Mount) (result []resolvedPath) {
+	// path -> most specific mountpoint
+	pathMap := make(map[string]string, len(paths))
+	for _, p := range paths {
+		for _, m := range mounts {
+			if m.MountPoint == "/" {
+				// Ignore the root mount
+				continue
+			}
+			if pathPrefix(p, m.MountPoint) {
+				if mountPoint, ok := pathMap[p]; !ok || len(m.MountPoint) > len(mountPoint) {
+					pathMap[p] = m.MountPoint
+				}
+			}
+		}
+		if _, ok := pathMap[p]; !ok {
+			result = append(result, resolvedPath{path: p})
+		}
+	}
+	for path, mountPoint := range pathMap {
+		result = append(result, resolvedPath{path: path, mountPoint: mountPoint})
+	}
+	return result
+}
+
+func (r *resolvedPath) matches(segment string) bool {
+	dir, _ := filepath.Split(segment)
+	return strings.HasPrefix(r.path[len(r.mountPoint):], dir)
+}
+
+type resolvedPath struct {
+	// mointPoint optionally specifies the mount point for this path
+	mountPoint string
+	path       string
+}
+
+func pathPrefix(path, prefix string) bool {
+	maybeAddSlash := func(path string) string {
+		if len(path) == 0 {
+			return string(filepath.Separator)
+		}
+		if path[len(path)-1] != filepath.Separator {
+			return path + string(filepath.Separator)
+		}
+		return path
+	}
+	switch {
+	case len(prefix) > len(path):
+		return false
+	case len(prefix) == len(path):
+		return path == prefix
+	default:
+		// Since prefix is assumed to be a directory,
+		// add a slash for an exact match.
+		return strings.HasPrefix(path, maybeAddSlash(prefix))
 	}
 }

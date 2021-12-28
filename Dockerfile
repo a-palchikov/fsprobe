@@ -2,8 +2,6 @@ FROM golang:1.18-rc-buster AS builder
 
 ARG CLANG_VER
 ARG KERNEL_VER
-#pbuilder
-#aptitude
 RUN DEBIAN_RELEASE=stretch DEBIAN_FRONTEND=noninteractive && \
     set -ex && \
     apt-get -qq update && \

@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -45,9 +44,6 @@ func NewOutput(options CLIOptions) (*Output, error) {
 	if err != nil {
 		return nil, err
 	}
-	if options.UsermodeFiltering {
-		writer = newFilteringWriter(writer, options.Paths)
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	output := Output{
 		EvtChan:  make(chan *model.FSEvent, options.FSOptions.UserSpaceChanSize),
@@ -63,30 +59,23 @@ func NewOutput(options CLIOptions) (*Output, error) {
 func (o *Output) Callback() {
 	o.wg.Add(1)
 	defer o.wg.Done()
-	var count int
 	for {
 		select {
 		case <-o.ctx.Done():
-			logrus.Printf("%v events captured", count)
 			return
 		case lost, ok := <-o.LostChan:
 			if !ok {
-				logrus.Printf("%v events captured", count)
 				return
 			}
 			logrus.Warnf("lost %v events from %v", lost.Count, lost.Map)
-			break
 		case evt, ok := <-o.EvtChan:
 			if !ok {
-				logrus.Printf("%v events captured", count)
 				return
 			}
-			count++
 			// Handle event
 			if err := o.writer.Write(evt); err != nil {
-				logrus.Errorf("couldn't write event to output: %v", err)
+				logrus.WithError(err).Error("Failed to write event to output.")
 			}
-			break
 		}
 	}
 }
@@ -195,34 +184,4 @@ type DummyOutput struct{}
 // Write - Write the event to the output writer
 func (do DummyOutput) Write(event *model.FSEvent) error {
 	return nil
-}
-
-func newFilteringWriter(writer OutputWriter, paths []string) OutputWriter {
-	return &filteringWriter{
-		paths: paths,
-		w:     writer,
-	}
-}
-
-func (r *filteringWriter) Write(event *model.FSEvent) error {
-	if !r.matchesAny(event.SrcFilename, event.TargetFilename) {
-		return nil
-	}
-	return r.w.Write(event)
-}
-
-func (r *filteringWriter) matchesAny(filenames ...string) bool {
-	for _, p := range r.paths {
-		for _, filename := range filenames {
-			if filename != "" && strings.HasPrefix(filename, p) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-type filteringWriter struct {
-	w     OutputWriter
-	paths []string
 }

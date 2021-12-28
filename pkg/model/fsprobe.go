@@ -24,7 +24,7 @@ import (
 
 type FSProbe interface {
 	GetWaitGroup() *sync.WaitGroup
-	GetOptions() *FSProbeOptions
+	GetOptions() FSProbeOptions
 	GetCollection() *ebpf.Collection
 	GetBootTime() time.Time
 }

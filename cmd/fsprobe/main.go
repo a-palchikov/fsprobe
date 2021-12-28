@@ -16,19 +16,9 @@ limitations under the License.
 package main
 
 import (
-	"os"
-
 	"github.com/Gui774ume/fsprobe/cmd/fsprobe/cmd"
-	"github.com/sirupsen/logrus"
 )
 
 func main() {
-	logrus.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp:          true,
-		TimestampFormat:        "2006-01-02T15:04:05Z",
-		DisableLevelTruncation: true,
-	})
-	logrus.SetOutput(os.Stdout)
-	logrus.SetLevel(logrus.DebugLevel)
 	cmd.FSProbeCmd.Execute()
 }

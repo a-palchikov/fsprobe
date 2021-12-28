@@ -19,14 +19,23 @@ limitations under the License.
 // event_type - Defines the type of file system event
 enum event_type
 {
+    //EVENT_ANY = 0,
+    //EVENT_FIRST_DISCARDER = 1,
+    //EVENT_OPEN = EVENT_FIRST_DISCARDER,
     EVENT_OPEN,
     EVENT_MKDIR,
     EVENT_LINK,
     EVENT_RENAME,
     EVENT_UNLINK,
     EVENT_RMDIR,
+    //EVENT_CHMOD,
+    //EVENT_CHOWN,
     EVENT_MODIFY,
     EVENT_SETATTR,
+    //TODO(dima): setxattr to replace setattr
+    //EVENT_SETXATTR,
+    //EVENT_REMOVEXATTR,
+    //EVENT_LAST_DISCARDER = EVENT_REMOVEXATTR,
 };
 
 // fs_event_t - File system event structure
@@ -90,9 +99,9 @@ struct bpf_map_def SEC("maps/dentry_cache_builder") dentry_cache_builder = {
 
 // path_key_t - Structure used as the key to store path_fragment_t structures
 struct path_key_t {
-    unsigned long ino;
+    u64 ino;
     u32 mount_id;
-    u32 padding;
+    u32 path_id;
 };
 
 // path_fragment_t - Structure used to store path leaf during the path resolution process

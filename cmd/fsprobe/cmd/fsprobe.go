@@ -21,9 +21,11 @@ import (
 	"syscall"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/Gui774ume/fsprobe/pkg/fsprobe"
+	"github.com/Gui774ume/fsprobe/pkg/fsprobe/monitor/fs"
 )
 
 func runFSProbeCmd(cmd *cobra.Command, args []string) error {
@@ -31,6 +33,8 @@ func runFSProbeCmd(cmd *cobra.Command, args []string) error {
 	if err := sanitizeOptions(args); err != nil {
 		return err
 	}
+
+	initLogging()
 
 	// 1) Prepare events output handler
 	output, err := NewOutput(options)
@@ -42,15 +46,15 @@ func runFSProbeCmd(cmd *cobra.Command, args []string) error {
 	options.FSOptions.EventChan = output.EvtChan
 	options.FSOptions.LostChan = output.LostChan
 
+	options.FSOptions.DataHandler, err = fs.NewFSEventHandler(args, options.FSOptions.Paths)
+	if err != nil {
+		return errors.Wrap(err, "failed to create FS event handler")
+	}
+
 	// 3) Instantiates FSProbe
 	probe := fsprobe.NewFSProbeWithOptions(options.FSOptions)
 
 	// 4) Start listening for events
-	if options.UsermodeFiltering {
-		// 4.1) Turn on user-mode filtering
-		args = []string(nil)
-	}
-
 	if err := probe.Watch(args...); err != nil {
 		return errors.Wrap(err, "failed to watch the filesystem")
 	}
@@ -68,6 +72,19 @@ func runFSProbeCmd(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func initLogging() {
+	logrus.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp:          true,
+		TimestampFormat:        "2006-01-02T15:04:05Z",
+		DisableLevelTruncation: true,
+	})
+	logrus.SetOutput(os.Stdout)
+	logrus.SetLevel(logrus.InfoLevel)
+	if options.Verbose {
+		logrus.SetLevel(logrus.DebugLevel)
+	}
+}
+
 // sanitizeOptions - Sanitizes the provided options
 func sanitizeOptions(args []string) error {
 	if options.FSOptions.PathsFiltering && len(args) == 0 {
@@ -76,13 +93,13 @@ func sanitizeOptions(args []string) error {
 	if len(args) > 0 {
 		options.FSOptions.PathsFiltering = true
 	}
-	if options.UsermodeFiltering {
-		options.FSOptions.PathsFiltering = false
+	if len(options.FSOptions.Paths) > 0 {
+		options.FSOptions.Recursive = false
 	}
 	return nil
 }
 
-// wait - Waits until an interrupt or kill signal is sent
+// wait - Waits until an interrupt or terminate signal is sent
 func wait() {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)

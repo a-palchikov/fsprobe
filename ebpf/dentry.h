@@ -24,6 +24,15 @@ limitations under the License.
 #define RESOLVE_TARGET 1 << 1
 #define EMIT_EVENT     1 << 2
 
+u32 __attribute__((always_inline)) get_mount_offset_of_mount_id(void) {
+    //TODO(dima): use a constant to dynamically determine the offset based on the
+    //kernel version
+    //u64 offset;
+    //LOAD_CONSTANT("mount_id_offset", offset);
+    //return offset ? offset : 284; // offsetof(struct mount, mnt_id)
+    return 284;
+}
+
 // get_inode_ino - Returns the inode number of an inode structure
 __attribute__((always_inline)) unsigned long get_inode_ino(struct inode *inode)
 {
@@ -33,7 +42,7 @@ __attribute__((always_inline)) unsigned long get_inode_ino(struct inode *inode)
 }
 
 // write_inode_ino - Writes the inode number of an inode structure
-__attribute__((always_inline)) void write_inode_ino(struct inode *inode, long *ino)
+__attribute__((always_inline)) void write_inode_ino(struct inode *inode, u64 *ino)
 {
     bpf_probe_read(ino, sizeof(inode), &inode->i_ino);
 }
@@ -55,8 +64,9 @@ __attribute__((always_inline)) int get_inode_mount_id(struct inode *dir)
     struct list_head s_mounts;
     bpf_probe_read(&s_mounts, sizeof(s_mounts), &spb->s_mounts);
 
-    bpf_probe_read(&mount_id, sizeof(int), (void *)s_mounts.next + 172);
+    //bpf_probe_read(&mount_id, sizeof(int), (void *)s_mounts.next + 172);
     // bpf_probe_read(&mount_id, sizeof(int), &((struct mount *) s_mounts.next)->mnt_id);
+    bpf_probe_read(&mount_id, sizeof(int), (char *)s_mounts.next + get_mount_offset_of_mount_id());
 
     return mount_id;
 }
@@ -103,8 +113,8 @@ __attribute__((always_inline)) struct dentry *get_inode_mountpoint(struct inode 
     struct list_head s_mounts;
     bpf_probe_read(&s_mounts, sizeof(s_mounts), &spb->s_mounts);
 
-    // bpf_probe_read(&mountpoint, sizeof(mountpoint), (void *) s_mounts.next - offsetof(struct mount, mnt_instance) + offsetof(struct mount, mnt_mountpoint));
     bpf_probe_read(&mountpoint, sizeof(mountpoint), (void *) s_mounts.next - 88);
+    // bpf_probe_read(&mountpoint, sizeof(mountpoint), (void *) s_mounts.next - offsetof(struct mount, mnt_instance) + offsetof(struct mount, mnt_mountpoint));
 
     return mountpoint;
 }
@@ -190,7 +200,7 @@ __attribute__((always_inline)) static u32 build_path(struct fs_event_wrapper_t *
 // resolve_dentry_fragments - Resolves a dentry into multiple fragments, one per parent of the initial dentry.
 // Each fragment is saved in a linked list inside the path_fragments hashmap.
 // @dentry: pointer to the initial dentry to resolve
-// pathname_key: first key of the fragments linked list in the path_fragment hashmap
+// @key: first key of the fragments linked list in the path_fragment hashmap
 __attribute__((always_inline)) static int resolve_dentry_fragments(struct dentry *dentry, struct path_key_t *key)
 {
     struct path_fragment_t map_value = {};

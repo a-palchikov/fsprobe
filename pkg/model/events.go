@@ -30,6 +30,8 @@ import (
 type EventName string
 
 var (
+	// Create defines the create event
+	Create EventName = "create"
 	// Open - Open event
 	Open EventName = "open"
 	// Mkdir - Mkdir event
@@ -69,6 +71,8 @@ func GetEventType(evtType uint32) EventName {
 		return Modify
 	case 7:
 		return SetAttr
+	case 8:
+		return Create
 	default:
 		return Unknown
 	}
@@ -89,95 +93,26 @@ func ParseFSEvent(data []byte, monitor *Monitor) (*FSEvent, error) {
 }
 
 // resolvePaths - Resolves the paths of the event according to the configured method
-func resolvePaths(data []byte, evt *FSEvent, monitor *Monitor, read int) error {
-	var err error
-	switch resolver := monitor.DentryResolver.(type) {
-	case *PathFragmentsResolver:
-		inode := evt.SrcInode
-		if evt.SrcPathnameKey != 0 {
-			inode = uint64(evt.SrcPathnameKey)
-		}
-		evt.SrcFilename, err = resolver.ResolveInode(evt.SrcMountID, inode)
+func resolvePaths(data []byte, evt *FSEvent, monitor *Monitor, read int) (err error) {
+	inode := evt.SrcInode
+	if evt.SrcPathnameKey != 0 {
+		inode = uint64(evt.SrcPathnameKey)
+	}
+	evt.SrcFilename, err = monitor.DentryResolver.ResolveInode(evt.SrcMountID, inode)
+	if err != nil {
+		return errors.Wrap(err, "failed to resolve src dentry path")
+	}
+	switch evt.EventType {
+	case Link, Rename:
+		evt.TargetFilename, err = monitor.DentryResolver.ResolveInode(evt.TargetMountID, evt.TargetInode)
 		if err != nil {
-			return errors.Wrap(err, "failed to resolve src dentry path")
+			return errors.Wrap(err, "failed to resolve target dentry path")
 		}
-		switch evt.EventType {
-		case Link, Rename:
-			evt.TargetFilename, err = resolver.ResolveInode(evt.TargetMountID, evt.TargetInode)
-			if err != nil {
-				return errors.Wrap(err, "failed to resolve target dentry path")
-			}
-		}
-		if evt.EventType == Link {
-			// Remove cache entry for link events
-			_ = resolver.RemoveInode(evt.TargetMountID, evt.TargetInode)
-			_ = resolver.RemoveInode(evt.TargetMountID, evt.TargetInode)
-		}
-		break
-	case *SingleFragmentResolver:
-		evt.SrcFilename, err = resolver.ResolveKey(evt.SrcPathnameKey, evt.SrcPathnameLength)
-		if err != nil {
-			return errors.Wrap(err, "failed to resolve src dentry path")
-		}
-		switch evt.EventType {
-		case Link, Rename:
-			evt.TargetFilename, err = resolver.ResolveKey(evt.TargetPathnameKey, evt.TargetPathnameLength)
-			if err != nil {
-				return errors.Wrap(err, "failed to resolve target dentry path")
-			}
-		}
-		if evt.EventType == Link {
-			// Remove cache entry for link events
-			_ = resolver.RemoveEntry(evt.SrcPathnameKey)
-			_ = resolver.RemoveEntry(evt.TargetPathnameKey)
-		}
-		break
-	case *PerfBufferResolver:
-		// Decode path from perf buffer when needed
-		srcEnd := read
-		if evt.SrcPathnameLength > 0 {
-			srcEnd += int(evt.SrcPathnameLength)
-			evt.SrcFilename = decodePath(data[read:srcEnd])
-		}
-		// Resolve end of path from cache when needed
-		if evt.SrcPathnameKey > 0 {
-			prefix, err := resolver.ResolveKey(evt.SrcPathnameKey, 0)
-			if err != nil {
-				return errors.Wrap(err, "failed to resolve src dentry path")
-			}
-			evt.SrcFilename = prefix + evt.SrcFilename
-		}
-		// Cache resolved path when needed
-		if evt.SrcPathnameLength > 0 && evt.EventType != Link {
-			err = resolver.AddCacheEntry(uint32(evt.SrcInode), evt.SrcFilename)
-			if err != nil {
-				return errors.Wrap(err, "failed to add src cached inode")
-			}
-		}
-		switch evt.EventType {
-		case Link, Rename:
-			// Decode path from perf buffer when needed
-			if evt.TargetPathnameLength > 0 {
-				targetEnd := srcEnd + int(evt.TargetPathnameLength)
-				evt.TargetFilename = decodePath(data[srcEnd:targetEnd])
-			}
-			// Resolve end of path from cache when needed
-			if evt.TargetPathnameKey > 0 {
-				prefix, err := resolver.ResolveKey(evt.TargetPathnameKey, 0)
-				if err != nil {
-					return errors.Wrap(err, "failed to resolve target dentry path")
-				}
-				evt.TargetFilename = prefix + evt.TargetFilename
-			}
-			// Cache resolved path when needed
-			if evt.TargetPathnameLength > 0 && evt.EventType != Link {
-				err = resolver.AddCacheEntry(uint32(evt.TargetInode), evt.TargetFilename)
-				if err != nil {
-					return errors.Wrap(err, "failed to add target cached inode")
-				}
-			}
-		}
-		break
+	}
+	if evt.EventType == Link {
+		// Remove cache entry for link events
+		_ = monitor.DentryResolver.RemoveInode(evt.TargetMountID, evt.TargetInode)
+		_ = monitor.DentryResolver.RemoveInode(evt.TargetMountID, evt.TargetInode)
 	}
 	return nil
 }

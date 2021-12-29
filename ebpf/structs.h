@@ -32,6 +32,7 @@ enum event_type
     //EVENT_CHOWN,
     EVENT_MODIFY,
     EVENT_SETATTR,
+    EVENT_CREATE,
     //TODO(dima): setxattr to replace setattr
     //EVENT_SETXATTR,
     //EVENT_REMOVEXATTR,

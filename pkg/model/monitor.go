@@ -27,8 +27,8 @@ import (
 type Monitor struct {
 	wg                 *sync.WaitGroup
 	collection         *ebpf.Collection
-	ResolutionModeMaps map[DentryResolutionMode][]string
-	DentryResolver     DentryResolver
+	ResolutionModeMaps []string
+	DentryResolver     *PathFragmentsResolver
 	FSProbe            FSProbe
 	InodeFilterSection string
 	Name               string
@@ -62,7 +62,7 @@ func (m *Monitor) Configure() {
 		}
 	}
 	// Setup dentry resolver
-	m.DentryResolver, _ = NewDentryResolver(m)
+	m.DentryResolver, _ = NewPathFragmentsResolver(m)
 }
 
 // GetName - Returns the name of the monitor
@@ -100,12 +100,6 @@ func (m *Monitor) Init(fs FSProbe) error {
 }
 
 func (m *Monitor) AddInodeFilter(inode uint32, path string) error {
-	// Add file in cache
-	if m.DentryResolver != nil {
-		if err := m.DentryResolver.AddCacheEntry(inode, path); err != nil {
-			return err
-		}
-	}
 	// Add inode filter
 	filter := m.GetMap(m.InodeFilterSection)
 	if filter == nil {

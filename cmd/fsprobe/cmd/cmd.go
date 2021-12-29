@@ -66,11 +66,6 @@ For each path filter, only top-level watches along the filter are added.
 If a filter specifies a file, in the file's directory only the file
 will be watched (along with all files in all preceeding sub-directories).
 Filter can specify a path that does not yet exist`)
-	FSProbeCmd.Flags().Var(
-		NewDentryResolutionModeValue(&options.FSOptions.DentryResolutionMode),
-		"dentry-resolution-mode",
-		`In-kernel dentry resolution mode. Can be either "fragments",
-"single_fragment" or "perf_buffer"`)
 	FSProbeCmd.Flags().BoolVarP(
 		&options.FSOptions.Recursive,
 		"recursive",

@@ -1,6 +1,7 @@
 MKFILE_PATH := $(abspath $(lastword $(MAKEFILE_LIST)))
 CURRENTDIR := $(realpath $(patsubst %/,%,$(dir $(MKFILE_PATH))))
 
+SHELL := bash
 OUTPUTDIR := _build
 BUILDDIR ?= $(CURRENTDIR)/$(OUTPUTDIR)
 BPF_BUILDDIR := pkg/assets/ebpf/bytecode
@@ -49,7 +50,7 @@ shell:
 
 # Build BPF code
 $(BPF_BUILDDIR)/%.o: ebpf/%.c $(wildcard ebpf/*.h) | $(BPF_BUILDDIR)
-	$(CLANG) -D__KERNEL__ -D__ASM_SYSREG_H \
+	@set -ex -o pipefail && $(CLANG) -D__KERNEL__ -D__ASM_SYSREG_H \
 		-Wno-unused-value \
 		-Wno-pointer-sign \
 		-Wno-compare-distinct-pointer-types \

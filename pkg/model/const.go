@@ -18,8 +18,6 @@ package model
 import "fmt"
 
 var (
-	// DentryResolutionModeConst - In-kernel configuration constant
-	DentryResolutionModeConst = "dentry_resolution_mode"
 	// InodeFilteringModeConst - In-kernel configuration constant
 	InodeFilteringModeConst = "inode_filtering_mode"
 	// FollowModeConst - In-kernel configuration constant

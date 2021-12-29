@@ -1,5 +1,6 @@
 /*
 Copyright © 2020 GUILLAUME FOURNIER
+Copyright 2017 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -202,3 +203,125 @@ func DebugReport(w io.Writer, err error) {
 		}
 	}
 }
+
+// listProcSelfMountinfo (Available since Linux 2.6.26) lists information about mount points
+// in the process's mount namespace. Ref: http://man7.org/linux/man-pages/man5/proc.5.html
+// for /proc/[pid]/mountinfo
+func listProcSelfMountinfo(mountFilePath string) ([]MountInfo, error) {
+	content, err := ConsistentRead(mountFilePath, maxListTries)
+	if err != nil {
+		return nil, err
+	}
+	return parseProcSelfMountinfo(content)
+}
+
+// ReadProcSelfMountinfo lists information about mount points
+// in the process's mount namespace.
+// Ref: http://man7.org/linux/man-pages/man5/proc.5.html
+// for /proc/[pid]/mountinfo
+func ReadProcSelfMountinfo() ([]MountInfo, error) {
+	content, err := ConsistentRead(procSelfMountinfoPath, maxListTries)
+	if err != nil {
+		return nil, err
+	}
+	return parseProcSelfMountinfo(content)
+}
+
+// MountInfo represents a single line in /proc/self/mountinfo.
+type MountInfo struct {
+	MountID      int
+	ParentID     int
+	DeviceID     string
+	Root         string
+	MountPoint   string
+	MountOptions []string
+	FsType       string
+	MountSource  string
+	SuperOptions []string
+}
+
+// ConsistentRead repeatedly reads a file until it gets the same content twice.
+// This is useful when reading files in /proc that are larger than page size
+// and kernel may modify them between individual read() syscalls.
+func ConsistentRead(filename string, attempts int) ([]byte, error) {
+	oldContent, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	for i := 0; i < attempts; i++ {
+		newContent, err := ioutil.ReadFile(filename)
+		if err != nil {
+			return nil, err
+		}
+		if bytes.Equal(oldContent, newContent) {
+			return newContent, nil
+		}
+		// Files are different, continue reading
+		oldContent = newContent
+	}
+	return nil, fmt.Errorf("could not get consistent content of %s after %d attempts", filename, attempts)
+}
+
+// parseProcSelfMountinfo parses the output of /proc/self/mountinfo file into a slice of MountInfo struct
+func parseProcSelfMountinfo(content []byte) ([]MountInfo, error) {
+	out := make([]MountInfo, 0)
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		if line == "" {
+			// The last split() item is empty string following the last \n
+			continue
+		}
+		fields := strings.Fields(line)
+		numFields := len(fields)
+		if numFields < minNumProcSelfMntInfoFieldsPerLine {
+			return nil, fmt.Errorf("wrong number of fields (expected at least %d, got %d): %s",
+				minNumProcSelfMntInfoFieldsPerLine, numFields, line)
+		}
+
+		// separator must be in the 4th position from the end for the line to contain fsType, mountSource, and
+		//  superOptions
+		if fields[numFields-4] != "-" {
+			return nil, fmt.Errorf("malformed mountinfo (could not find separator): %s", line)
+		}
+
+		// If root value is marked deleted, skip the entry
+		if strings.Contains(fields[3], "deleted") {
+			continue
+		}
+
+		mp := MountInfo{
+			DeviceID:     fields[2],
+			Root:         fields[3],
+			MountPoint:   fields[4],
+			MountOptions: strings.Split(fields[5], ","),
+		}
+
+		mountId, err := strconv.Atoi(fields[0])
+		if err != nil {
+			return nil, err
+		}
+		mp.MountID = mountId
+
+		parentId, err := strconv.Atoi(fields[1])
+		if err != nil {
+			return nil, err
+		}
+		mp.ParentID = parentId
+
+		mp.FsType = fields[numFields-3]
+		mp.MountSource = fields[numFields-2]
+		mp.SuperOptions = strings.Split(fields[numFields-1], ",")
+
+		out = append(out, mp)
+	}
+	return out, nil
+}
+
+const (
+	// How many times to retry for a consistent read of /proc/mounts.
+	maxListTries = 3
+	// Minimum number of fields per line in /proc/self/mountinfo as per the proc man page.
+	minNumProcSelfMntInfoFieldsPerLine = 10
+	// Location of the mount file to use
+	procSelfMountinfoPath = "/proc/self/mountinfo"
+)

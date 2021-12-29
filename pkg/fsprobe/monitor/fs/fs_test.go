@@ -3,50 +3,54 @@ package fs
 import (
 	"testing"
 
-	"github.com/c9s/goprocinfo/linux"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Gui774ume/fsprobe/pkg/utils"
 )
 
 func TestResolvesPaths(t *testing.T) {
 	var testCases = []struct {
 		comment  string
-		mounts   []linux.Mount
+		mounts   []utils.MountInfo
 		paths    []string
 		expected []resolvedPath
 	}{
 		{
 			comment: "selects the most specific mount point",
-			mounts: []linux.Mount{
+			mounts: []utils.MountInfo{
 				{
-					Device:     "/dev/dev1",
+					MountID:    1,
 					MountPoint: "/path/to/dir",
 				},
 				{
-					Device:     "/dev/dev2",
+					MountID:    2,
 					MountPoint: "/path/to/dir/subdir",
 				},
 				{
-					Device:     "/dev/dev3",
+					MountID:    3,
 					MountPoint: "/path/to/dir/subdir/dir2",
 				},
 				{
-					Device:     "/dev/dev4",
+					MountID:    4,
 					MountPoint: "/path/to/dir/subdir2/dir",
 				},
 			},
 			paths: []string{"/path/to/dir/subdir/dir2/file"},
 			expected: []resolvedPath{
 				{
-					path:       "/path/to/dir/subdir/dir2/file",
-					mountPoint: "/path/to/dir/subdir/dir2",
+					path: "/path/to/dir/subdir/dir2/file",
+					mi: &utils.MountInfo{
+						MountID:    3,
+						MountPoint: "/path/to/dir/subdir/dir2",
+					},
 				},
 			},
 		},
 		{
 			comment: "adds an entry without mountpoint if no match found",
-			mounts: []linux.Mount{
+			mounts: []utils.MountInfo{
 				{
-					Device:     "/dev/dev1",
+					MountID:    1,
 					MountPoint: "/path/to/dir",
 				},
 			},
@@ -62,9 +66,9 @@ func TestResolvesPaths(t *testing.T) {
 		},
 		{
 			comment: "correctly matches on boundary",
-			mounts: []linux.Mount{
+			mounts: []utils.MountInfo{
 				{
-					Device:     "/dev/dev1",
+					MountID:    1,
 					MountPoint: "/path/to/dir",
 				},
 			},
@@ -74,16 +78,19 @@ func TestResolvesPaths(t *testing.T) {
 					path: "/path/to/dir2",
 				},
 				{
-					mountPoint: "/path/to/dir",
-					path:       "/path/to/dir",
+					mi: &utils.MountInfo{
+						MountID:    1,
+						MountPoint: "/path/to/dir",
+					},
+					path: "/path/to/dir",
 				},
 			},
 		},
 		{
 			comment: "skips the root mount",
-			mounts: []linux.Mount{
+			mounts: []utils.MountInfo{
 				{
-					Device:     "/dev/dev1",
+					MountID:    1,
 					MountPoint: "/",
 				},
 			},
@@ -104,9 +111,16 @@ func TestResolvesPaths(t *testing.T) {
 }
 
 func TestCanMatchFromResolvedPaths(t *testing.T) {
+	const mountID = 1
 	paths := []resolvedPath{
 		{path: "/path/to/watch"},
-		{mountPoint: "/mount/point", path: "/mount/point/another/path/to/watch"},
+		{
+			mi: &utils.MountInfo{
+				MountID:    mountID,
+				MountPoint: "/mount/point",
+			},
+			path: "/mount/point/another/path/to/watch",
+		},
 	}
 	var testCases = []struct {
 		comment string
@@ -138,7 +152,7 @@ func TestCanMatchFromResolvedPaths(t *testing.T) {
 			var matches []string
 			for _, input := range tc.input {
 				for _, p := range paths {
-					if p.matches(input) {
+					if p.matches(mountID, input) {
 						matches = append(matches, input)
 					}
 				}

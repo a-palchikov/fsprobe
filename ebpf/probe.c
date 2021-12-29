@@ -19,6 +19,24 @@ limitations under the License.
 // ----------------------
 // Below is the list of all the kernel hook points used by FSProbe.
 
+// CREATE
+
+SEC("kprobe/vfs_create")
+int kprobe_vfs_create(struct pt_regs *ctx)
+{
+    struct inode *dir = (struct inode *)PT_REGS_PARM1(ctx);
+    struct dentry *dentry = (struct dentry *)PT_REGS_PARM2(ctx);
+    // TODO(dima): figure out mode?
+    //umode_t mode = (umode_t)PT_REGS_PARM3(ctx);
+    return trace_create(ctx, dir, dentry);
+}
+
+SEC("kretprobe/vfs_create")
+int kretprobe_vfs_create(struct pt_regs *ctx)
+{
+    return trace_create_ret(ctx);
+}
+
 // OPEN
 
 SEC("kprobe/vfs_open")

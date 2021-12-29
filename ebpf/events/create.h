@@ -13,13 +13,15 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-#ifndef _OPEN_H_
-#define _OPEN_H_
+#ifndef _CREATE_H_
+#define _CREATE_H_
 
-// trace_open - Traces a file system open event.
+// trace_create - Traces a file system create event.
 // @ctx: registers context
-// @path: pointer to the file path structure
-__attribute__((always_inline)) static int trace_open(struct pt_regs *ctx, struct path *path)
+// @dir: pointer to the inode of the containing directory
+// @dentry: pointer to the dentry structure of the new file/directory
+// @mode: mode of the mkdir call
+__attribute__((always_inline)) static int trace_create(struct pt_regs *ctx, struct inode *dir, struct dentry *dentry)
 {
     u32 cpu = bpf_get_smp_processor_id();
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache_builder, &cpu);
@@ -32,19 +34,17 @@ __attribute__((always_inline)) static int trace_open(struct pt_regs *ctx, struct
     // Add process data
     u64 key = fill_process_data(&data_cache->fs_event.process_data);
     // Probe type
-    data_cache->fs_event.event = EVENT_OPEN;
+    data_cache->fs_event.event = EVENT_CREATE;
 
-    // Add inode data
-    struct dentry *dentry;
-    bpf_probe_read(&dentry, sizeof(struct dentry *), &path->dentry);
-    data_cache->fs_event.src_inode = get_dentry_ino(dentry);
     // Mount ID
-    struct vfsmount *mnt;
-    bpf_probe_read(&mnt, sizeof(struct vfsmount *), &path->mnt);
-    bpf_probe_read(&data_cache->fs_event.src_mount_id, sizeof(int), (void *)mnt + 252);
+    data_cache->fs_event.src_mount_id = get_inode_mount_id(dir);
 
     // Dentry data
     data_cache->src_dentry = dentry;
+
+    struct basename_t basename = {};
+    get_dentry_name(dentry, &basename, sizeof(basename));
+    bpf_printk("create_e: name=%s", basename.value);
 
     // Filter
     if (!match(data_cache, FILTER_SRC))
@@ -55,9 +55,9 @@ __attribute__((always_inline)) static int trace_open(struct pt_regs *ctx, struct
     return 0;
 }
 
-// trace_open_ret - Traces the return of a file system open event.
+// trace_create_ret - Traces the return of a file system create event.
 // @ctx: registers context
-__attribute__((always_inline)) static int trace_open_ret(struct pt_regs *ctx)
+__attribute__((always_inline)) static int trace_create_ret(struct pt_regs *ctx)
 {
     u64 key = bpf_get_current_pid_tgid();
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache, &key);
@@ -65,8 +65,19 @@ __attribute__((always_inline)) static int trace_open_ret(struct pt_regs *ctx)
         return 0;
     data_cache->fs_event.retval = PT_REGS_RC(ctx);
 
+    // Add inode data
+    data_cache->fs_event.src_inode = get_dentry_ino(data_cache->src_dentry);
+
     // Resolve paths
     resolve_paths(ctx, data_cache, RESOLVE_SRC | EMIT_EVENT);
+
+    // Check recursive mode and insert inode if necessary
+    u64 recursive = load_recursive_mode();
+    if (recursive) {
+        u8 value = 0;
+        bpf_map_update_elem(&inodes_filter, &data_cache->fs_event.src_inode, &value, BPF_ANY);
+    }
+
     bpf_map_delete_elem(&dentry_cache, &key);
     return 0;
 }

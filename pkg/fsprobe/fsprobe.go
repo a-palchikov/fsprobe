@@ -43,7 +43,7 @@ import (
 
 // FSProbe - Main File system probe structure
 type FSProbe struct {
-	options model.FSProbeOptions
+	options        model.FSProbeOptions
 	wg             sync.WaitGroup
 	collection     *ebpf.Collection
 	collectionSpec *ebpf.CollectionSpec
@@ -243,11 +243,9 @@ func (fsp *FSProbe) addFilteredWatch(path string) error {
 	// For simplicity, also assume len(options.Paths) == 1
 	pathFilter := fsp.options.Paths[0]
 	list := strings.Split(pathFilter[len(path):], string(filepath.Separator))
-	if len(list) == 0 {
-		return nil
-	}
 	for _, d := range list {
-		fsp.addTopLevelWatch(filepath.Join(path, d))
+		path = filepath.Join(path, d)
+		fsp.addTopLevelWatch(path)
 	}
 	return nil
 }
@@ -357,21 +355,16 @@ func (fsp *FSProbe) EditEBPFConstants(spec *ebpf.CollectionSpec) error {
 				for _, constant := range probe.Constants {
 					var value uint64
 					switch constant {
-					case model.DentryResolutionModeConst:
-						value = uint64(fsp.options.DentryResolutionMode)
 					case model.InodeFilteringModeConst:
 						if fsp.options.PathsFiltering {
-							logrus.Debug("Path filtering on.")
 							value = 1
 						}
 					case model.FollowModeConst:
 						if fsp.options.FollowRenames {
-							logrus.Debug("Follow renames.")
 							value = 1
 						}
 					case model.RecursiveModeConst:
 						if fsp.options.Recursive {
-							logrus.Debug("Recursive.")
 							value = 1
 						}
 					default:
@@ -392,28 +385,18 @@ func (fsp *FSProbe) removeUnusedMaps() {
 	if fsp.collectionSpec == nil {
 		return
 	}
-	toRemove := []string{}
+	var toRemove []string
+L:
 	for name := range fsp.collectionSpec.Maps {
-		used := false
 		// check if the map is used in all the monitors
 		for _, m := range fsp.monitors {
-			rmm, ok := m.ResolutionModeMaps[fsp.options.DentryResolutionMode]
-			if !ok {
-				continue
-			}
-			for _, eMapName := range rmm {
+			for _, eMapName := range m.ResolutionModeMaps {
 				if name == eMapName {
-					used = true
-					break
+					continue L
 				}
 			}
-			if used {
-				break
-			}
 		}
-		if !used {
-			toRemove = append(toRemove, name)
-		}
+		toRemove = append(toRemove, name)
 	}
 	for _, name := range toRemove {
 		delete(fsp.collectionSpec.Maps, name)

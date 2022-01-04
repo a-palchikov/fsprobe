@@ -15,7 +15,12 @@ limitations under the License.
 */
 package model
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"syscall"
+)
 
 var (
 	// InodeFilteringModeConst - In-kernel configuration constant
@@ -601,87 +606,80 @@ func SetAttrFlagsToString(input uint32) []string {
 	return rep
 }
 
+func (r OpenFlag) Strings() (flags []string) {
+	if r&(syscall.O_RDWR|syscall.O_WRONLY) == 0 || r&syscall.O_WRONLY == 0 {
+		flags = append(flags, "O_RDONLY")
+	}
+	for f, s := range flagStrings {
+		if r&f != 0 {
+			flags = append(flags, s)
+		}
+	}
+	return flags
+}
+
+func (r OpenFlag) String() string {
+	var b strings.Builder
+	fmt.Fprint(&b, "flags(0x", strconv.FormatInt(int64(r), 16), "=")
+	if r&(syscall.O_RDWR|syscall.O_WRONLY) == 0 || r&syscall.O_WRONLY == 0 {
+		fmt.Fprint(&b, "O_RDONLY|")
+	}
+	for f, s := range flagStrings {
+		if r&f != 0 {
+			fmt.Fprint(&b, s, "|")
+		}
+	}
+	fmt.Fprint(&b, ")")
+	return b.String()
+}
+
+var flagStrings = map[OpenFlag]string{
+	O_RDWR:      "O_RDWR",
+	O_WRONLY:    "O_WRONLY",
+	O_APPEND:    "O_APPEND",
+	O_ASYNC:     "O_ASYNC",
+	O_CLOEXEC:   "O_CLOEXEC",
+	O_CREAT:     "O_CREAT",
+	O_DIRECT:    "O_DIRECT",
+	O_DIRECTORY: "O_DIRECTORY",
+	O_DSYNC:     "O_DSYNC",
+	O_EXCL:      "O_EXCL",
+	O_NOATIME:   "O_NOATIME",
+	O_NOCTTY:    "O_NOCTTY",
+	O_NOFOLLOW:  "O_NOFOLLOW",
+	O_NONBLOCK:  "O_NONBLOCK",
+	O_PATH:      "O_PATH",
+	O_SYNC:      "O_SYNC",
+	O_TMPFILE:   "O_TMPFILE",
+	O_TRUNC:     "O_TRUNC",
+}
+
+const (
+	O_PATH    = 0x200000
+	O_TMPFILE = 0x410000
+)
+
 // OpenFlag - Open syscall flag
 type OpenFlag int
 
 const (
-	OACCMODE   OpenFlag = 3
-	ORDONLY    OpenFlag = 0
-	OWRONLY    OpenFlag = 1
-	ORDWR      OpenFlag = 2
-	OCREAT     OpenFlag = 64
-	OEXCL      OpenFlag = 128
-	ONOCTTY    OpenFlag = 256
-	OTRUNC     OpenFlag = 512
-	OAPPEND    OpenFlag = 1024
-	ONONBLOCK  OpenFlag = 2048
-	ODSYNC     OpenFlag = 4096  /* used to be OSYNC, see below */
-	FASYNC     OpenFlag = 8192  /* fcntl, for BSD compatibility */
-	ODIRECT    OpenFlag = 16384 /* direct disk access hint */
-	OLARGEFILE OpenFlag = 32768
-	ODIRECTORY OpenFlag = 65536  /* must be a directory */
-	ONOFOLLOW  OpenFlag = 131072 /* don't follow links */
-	ONOATIME   OpenFlag = 262144
-	OCLOEXEC   OpenFlag = 524288 /* set close_on_exec */
+	O_RDONLY    OpenFlag = 0x0
+	O_WRONLY    OpenFlag = 0x1
+	O_RDWR      OpenFlag = 0x2
+	O_ACCMODE   OpenFlag = 0x3
+	O_CREAT     OpenFlag = 0x40
+	O_EXCL      OpenFlag = 0x80
+	O_NOCTTY    OpenFlag = 0x100
+	O_TRUNC     OpenFlag = 0x200
+	O_APPEND    OpenFlag = 0x400
+	O_NONBLOCK  OpenFlag = 0x800
+	O_DSYNC     OpenFlag = 0x1000 /* used to be OSYNC, see below */
+	O_ASYNC     OpenFlag = 0x2000 /* fcntl, for BSD compatibility */
+	O_SYNC      OpenFlag = 0x101000
+	O_DIRECT    OpenFlag = 0x4000 /* direct disk access hint */
+	O_LARGEFILE OpenFlag = 0x8000
+	O_DIRECTORY OpenFlag = 0x10000 /* must be a directory */
+	O_NOFOLLOW  OpenFlag = 0x20000 /* don't follow links */
+	O_NOATIME   OpenFlag = 0x40000
+	O_CLOEXEC   OpenFlag = 0x80000 /* set close_on_exec */
 )
-
-// OpenFlagsToStrings - Returns the string list version of flags
-func OpenFlagsToStrings(input uint32) []string {
-	flags := OpenFlag(input)
-	rep := []string{}
-	if flags&OACCMODE == OACCMODE {
-		rep = append(rep, "OACCMODE")
-	}
-	if flags&ORDONLY == ORDONLY {
-		rep = append(rep, "ORDONLY")
-	}
-	if flags&OWRONLY == OWRONLY {
-		rep = append(rep, "OWRONLY")
-	}
-	if flags&ORDWR == ORDWR {
-		rep = append(rep, "ORDWR")
-	}
-	if flags&OCREAT == OCREAT {
-		rep = append(rep, "OCREAT")
-	}
-	if flags&OEXCL == OEXCL {
-		rep = append(rep, "OEXCL")
-	}
-	if flags&ONOCTTY == ONOCTTY {
-		rep = append(rep, "ONOCTTY")
-	}
-	if flags&OTRUNC == OTRUNC {
-		rep = append(rep, "OTRUNC")
-	}
-	if flags&OAPPEND == OAPPEND {
-		rep = append(rep, "OAPPEND")
-	}
-	if flags&ONONBLOCK == ONONBLOCK {
-		rep = append(rep, "ONONBLOCK")
-	}
-	if flags&ODSYNC == ODSYNC {
-		rep = append(rep, "ODSYNC")
-	}
-	if flags&FASYNC == FASYNC {
-		rep = append(rep, "FASYNC")
-	}
-	if flags&ODIRECT == ODIRECT {
-		rep = append(rep, "ODIRECT")
-	}
-	if flags&OLARGEFILE == OLARGEFILE {
-		rep = append(rep, "OLARGEFILE")
-	}
-	if flags&ODIRECTORY == ODIRECTORY {
-		rep = append(rep, "ODIRECTORY")
-	}
-	if flags&ONOFOLLOW == ONOFOLLOW {
-		rep = append(rep, "ONOFOLLOW")
-	}
-	if flags&ONOATIME == ONOATIME {
-		rep = append(rep, "ONOATIME")
-	}
-	if flags&OCLOEXEC == OCLOEXEC {
-		rep = append(rep, "OCLOEXEC")
-	}
-	return rep
-}

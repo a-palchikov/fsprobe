@@ -17,11 +17,9 @@ package fs
 
 import (
 	"C"
-	"fmt"
 	"path/filepath"
 	"strings"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
 	"github.com/Gui774ume/ebpf"
@@ -39,6 +37,8 @@ var (
 			model.FSEventsMap,
 			model.DentryCacheMap,
 			model.DentryCacheBuilderMap,
+			model.DentryOpenCacheMap,
+			model.DentryOpenCacheBuilderMap,
 			model.InodesFilterMap,
 		},
 		Probes: map[model.EventName][]*model.Probe{
@@ -74,6 +74,23 @@ var (
 					SectionName: "kretprobe/vfs_open",
 					Enabled:     false,
 					Type:        ebpf.Kprobe,
+				},
+				{
+					Name:        "path_openat",
+					SectionName: "kprobe/path_openat",
+					Enabled:     false,
+					Type:        ebpf.Kprobe,
+				},
+				{
+					Name:        "path_openat_ret",
+					SectionName: "kretprobe/path_openat",
+					Enabled:     false,
+					Type:        ebpf.Kprobe,
+					Constants: []string{
+						// In path_openat we need to filter
+						// in the return probe
+						model.InodeFilteringModeConst,
+					},
 				},
 			},
 			model.Mkdir: {
@@ -206,7 +223,8 @@ var (
 			{
 				UserSpaceBufferLen: 1000,
 				PerfOutputMapName:  "fs_events",
-				LostHandler:        LostFSEvent,
+				// TODO(dima): move to fs event handler
+				LostHandler: LostFSEvent,
 			},
 		},
 	}
@@ -223,20 +241,16 @@ func LostFSEvent(count uint64, mapName string, monitor *model.Monitor) {
 	}
 }
 
-func NewFSEventHandler(paths, pathFilter []string) (*FSEventHandler, error) {
-	mounts, err := utils.ReadProcSelfMountinfo()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to read mounts")
-	}
+func NewFSEventHandler(paths, pathAxes []string, mounts map[int]utils.MountInfo) (*FSEventHandler, error) {
 	return &FSEventHandler{
-		pathFilters: resolveMounts(pathFilter, mounts),
-		paths:       paths,
+		pathAxes: resolveMounts(pathAxes, mounts),
+		paths:    paths,
 	}, nil
 }
 
 type FSEventHandler struct {
-	pathFilters []resolvedPath
-	paths       []string
+	pathAxes []resolvedPath
+	paths    []string
 }
 
 type openFlag = model.OpenFlag
@@ -254,7 +268,7 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 	var matched bool
 	switch event.EventType {
 	case model.Open:
-		if openFlag(event.Flags)&model.OCREAT != 0 {
+		if openFlag(event.Flags)&model.O_CREAT != 0 {
 			matched, err = r.maybeAddInodeFilter(monitor,
 				uint32(event.SrcInode),
 				int(event.SrcMountID),
@@ -276,7 +290,7 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 	case model.Rename:
 		matched, err = r.maybeAddInodeFilter(monitor,
 			uint32(event.TargetInode),
-			// source mount ID to trigger the event below
+			// Match on the source mount ID
 			int(event.SrcMountID),
 			event.TargetFilename,
 			logger.WithField("target", event.TargetFilename))
@@ -308,12 +322,10 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 // if the path matches one of the filters.
 // Returns true for a match, false - otherwise
 func (r *FSEventHandler) maybeAddInodeFilter(monitor *model.Monitor, inode uint32, mountID int, path string, logger logrus.FieldLogger) (matched bool, err error) {
-	for _, f := range r.pathFilters {
-		if f.matches(mountID, path) {
-			err := monitor.AddInodeFilter(inode, path)
-			logger.WithError(err).Info("Added new inode filter.")
-			return true, err
-		}
+	if r.matches(mountID, path) {
+		err := monitor.AddInodeFilter(inode, path)
+		logger.WithError(err).Info("Added new inode filter.")
+		return true, err
 	}
 	return false, nil
 }
@@ -325,7 +337,12 @@ func removeCacheEntry(event *model.FSEvent, m *model.Monitor) error {
 // matches determines whether filename matches any of the watched paths.
 // expects filename != ""
 func (r *FSEventHandler) matches(mountID int, path string) bool {
-	for _, f := range r.pathFilters {
+	// TODO(dima): figure out the details on bogus mount IDs and
+	// root paths
+	if path == "" || path == "/" {
+		return false
+	}
+	for _, f := range r.pathAxes {
 		if f.matches(mountID, path) {
 			return true
 		}
@@ -333,58 +350,46 @@ func (r *FSEventHandler) matches(mountID int, path string) bool {
 	return false
 }
 
-func resolveMounts(paths []string, mounts []utils.MountInfo) (result []resolvedPath) {
+func resolveMounts(paths []string, mounts map[int]utils.MountInfo) (result []resolvedPath) {
 	// path -> most specific mountpoint
 	pathMap := make(map[string]utils.MountInfo, len(paths))
 	for _, p := range paths {
 		for _, m := range mounts {
-			if m.MountPoint == "/" {
-				// Ignore the root mount
-				continue
-			}
 			if pathPrefix(p, m.MountPoint) {
 				if mi, ok := pathMap[p]; !ok || len(m.MountPoint) > len(mi.MountPoint) {
 					pathMap[p] = m
 				}
 			}
 		}
-		if _, ok := pathMap[p]; !ok {
-			result = append(result, resolvedPath{path: p})
-		}
 	}
 	for path, mi := range pathMap {
 		mi := mi
-		result = append(result, resolvedPath{path: path, mi: &mi})
+		result = append(result, resolvedPath{path: path, mi: mi})
 	}
 	return result
 }
 
 func (r *resolvedPath) matches(mountID int, path string) bool {
-	if r.mi == nil {
-		dir, _ := filepath.Split(path)
-		return strings.HasPrefix(r.path, dir)
-	}
 	if r.mi.MountID != mountID {
 		return false
 	}
 	dir := filepath.Dir(path)
-	return strings.HasPrefix(r.path[len(r.mi.MountPoint):], dir)
+	return strings.HasPrefix(r.path, dir)
 }
 
-func (r resolvedPath) String() string {
-	var b strings.Builder
-	fmt.Fprint(&b, "resolvedPath(")
-	if r.mi != nil {
-		fmt.Fprintf(&b, "mnt_id=%d,mntpoint=%s,", r.mi.MountID, r.mi.MountPoint)
-	}
-	fmt.Fprint(&b, "path=", r.path)
-	fmt.Fprint(&b, ")")
-	return b.String()
-}
+//func (r resolvedPath) String() string {
+//	var b strings.Builder
+//	fmt.Fprint(&b, "resolvedPath(")
+//	if r.mi != nil {
+//		fmt.Fprintf(&b, "mnt_id=%d,mntpoint=%s,", r.mi.MountID, r.mi.MountPoint)
+//	}
+//	fmt.Fprint(&b, "path=", r.path)
+//	fmt.Fprint(&b, ")")
+//	return b.String()
+//}
 
 type resolvedPath struct {
-	// mi optionally specifies the mount point for this path
-	mi   *utils.MountInfo
+	mi   utils.MountInfo
 	path string
 }
 

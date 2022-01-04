@@ -25,6 +25,7 @@ limitations under the License.
 #define EMIT_EVENT     1 << 2
 
 #define MNT_OFFSETOF_MNT 32 // offsetof(struct mount, mnt)
+#define DENTRY_OFFSETOF_INODE 48 // offsetof(struct dentry, d_inode)
 
 u32 __attribute__((always_inline)) get_mount_offset_of_mount_id(void) {
     //TODO(dima): use a constant to dynamically determine the offset based on the
@@ -85,7 +86,6 @@ __attribute__((always_inline)) int get_inode_mount_id(struct inode *dir)
     struct list_head s_mounts;
     bpf_probe_read(&s_mounts, sizeof(s_mounts), &spb->s_mounts);
 
-    //bpf_probe_read(&mount_id, sizeof(int), (void *)s_mounts.next + 172);
     // bpf_probe_read(&mount_id, sizeof(int), &((struct mount *) s_mounts.next)->mnt_id);
     bpf_probe_read(&mount_id, sizeof(int), (char *)s_mounts.next + get_mount_offset_of_mount_id());
 
@@ -162,6 +162,16 @@ __attribute__((always_inline)) struct dentry *get_file_dentry(struct file *file)
     struct dentry *f_dentry;
     bpf_probe_read(&f_dentry, sizeof(f_dentry), &file->f_path.dentry);
     return f_dentry;
+}
+
+// get_inode_dentry - Returns the dentry relative to the provided inode
+__attribute__((always_inline)) struct dentry *get_inode_dentry(struct inode *inode)
+{
+    struct dentry *dentry;
+    // bpf_probe_read(&dentry, sizeof(struct dentry*), (char *)inode - offsetof(struct dentry, d_inode));
+    // bpf_probe_read(&dentry, sizeof(struct dentry*), (char *)inode - DENTRY_OFFSETOF_INODE);
+    bpf_probe_read(&dentry, sizeof(struct dentry*), (char *)inode - offsetof(struct dentry, d_inode));
+    return dentry;
 }
 
 #define DENTRY_MAX_DEPTH 70
@@ -258,6 +268,12 @@ __attribute__((always_inline)) static u32 resolve_fragments(struct pt_regs *ctx,
 // @cache: pointer to the dentry_cache_t structure that contains the source and target dentry to resolve
 __attribute__((always_inline)) static int resolve_paths(struct pt_regs *ctx, struct dentry_cache_t *cache, u8 flag) {
     return resolve_fragments(ctx, cache, flag);
+}
+
+__attribute__((always_inline)) static void reset_cache_entry(struct dentry_cache_t *data_cache) {
+    data_cache->fs_event.src_path_key = 0;
+    data_cache->fs_event.target_path_key = 0;
+    data_cache->cursor = 0;
 }
 
 #endif

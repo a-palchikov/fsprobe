@@ -78,6 +78,13 @@ struct dentry_cache_t
     u32 cursor;
 };
 
+// dentry_open_cache_t - Dentry cache structure used to cache context between kprobes entry and return
+struct dentry_open_cache_t
+{
+    struct fs_event_t fs_event;
+    struct path *path;
+};
+
 // dentry_cache - Dentry cache map used to store dentry cache structures between 2 eBPF programs
 struct bpf_map_def SEC("maps/dentry_cache") dentry_cache = {
     .type = BPF_MAP_TYPE_LRU_HASH,
@@ -93,6 +100,27 @@ struct bpf_map_def SEC("maps/dentry_cache_builder") dentry_cache_builder = {
     .type = BPF_MAP_TYPE_ARRAY,
     .key_size = sizeof(u32),
     .value_size = sizeof(struct dentry_cache_t),
+    .max_entries = 16,
+    .pinning = PIN_NONE,
+    .namespace = "",
+};
+
+// dentry_open_cache - Auxiliary map used to share dentry cache values between probes
+struct bpf_map_def SEC("maps/dentry_open_cache") dentry_open_cache = {
+    .type = BPF_MAP_TYPE_LRU_HASH,
+    .key_size = sizeof(u64),
+    .value_size = sizeof(struct dentry_open_cache_t),
+    .max_entries = 1000,
+    .pinning = PIN_NONE,
+    .namespace = "",
+};
+
+// dentry_open_cache_builder - Auxiliary map used to reduce the amount of data on the stack
+// between path_openat probes
+struct bpf_map_def SEC("maps/dentry_open_cache_builder") dentry_open_cache_builder = {
+    .type = BPF_MAP_TYPE_ARRAY,
+    .key_size = sizeof(u32),
+    .value_size = sizeof(struct dentry_open_cache_t),
     .max_entries = 16,
     .pinning = PIN_NONE,
     .namespace = "",
@@ -133,49 +161,11 @@ struct fs_event_wrapper_t {
     char buff[PATH_BUFFER_SIZE];
 };
 
-struct bpf_map_def SEC("maps/paths_builder") paths_builder = {
-    .type = BPF_MAP_TYPE_ARRAY,
-    .key_size = sizeof(u32),
-    .value_size = sizeof(struct fs_event_wrapper_t),
-    .max_entries = 40000,
-    .pinning = PIN_NONE,
-    .namespace = "",
-};
-
-struct bpf_map_def SEC("maps/cached_inodes") cached_inodes = {
-    .type = BPF_MAP_TYPE_LRU_HASH,
-    .key_size = sizeof(u32),
-    .value_size = sizeof(u8),
-    .max_entries = 40000,
-    .pinning = PIN_NONE,
-    .namespace = "",
-};
-
 struct bpf_map_def SEC("maps/inodes_filter") inodes_filter = {
     .type = BPF_MAP_TYPE_LRU_HASH,
     .key_size = sizeof(u32),
     .value_size = sizeof(u8),
     .max_entries = 120000,
-    .pinning = PIN_NONE,
-    .namespace = "",
-};
-
-// SINGLE_FRAGMENTS_SIZE - See the comment about PATH_BUFFER_SIZE. The same condition applies, however those map values
-// will only hold one path at a time. Therefore we can choose: 2**12 + NAME_MAX = 4096 + 255 = 4351
-#define SINGLE_FRAGMENTS_SIZE 4351
-
-// single_fragment_t - Structure used to store single fragments during the path resolution process
-struct single_fragment_t
-{
-    char name[SINGLE_FRAGMENTS_SIZE];
-};
-
-// path_fragments - Map used to store path fragments. The user space program will recover the fragments from this map.
-struct bpf_map_def SEC("maps/single_fragments") single_fragments = {
-    .type = BPF_MAP_TYPE_LRU_HASH,
-    .key_size = sizeof(u32),
-    .value_size = sizeof(struct single_fragment_t),
-    .max_entries = 40000,
     .pinning = PIN_NONE,
     .namespace = "",
 };

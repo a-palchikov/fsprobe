@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 
 	"github.com/Gui774ume/fsprobe/pkg/utils"
 )
@@ -98,12 +99,20 @@ func resolvePaths(data []byte, evt *FSEvent, monitor *Monitor, read int) (err er
 	if evt.SrcPathnameKey != 0 {
 		inode = uint64(evt.SrcPathnameKey)
 	}
+	if evt.SrcMountID == 0 && inode == 0 {
+		logrus.Debug("Invalid mountID/inode tuple.")
+		return nil
+	}
 	evt.SrcFilename, err = monitor.DentryResolver.ResolveInode(evt.SrcMountID, inode)
 	if err != nil {
 		return errors.Wrap(err, "failed to resolve src dentry path")
 	}
 	switch evt.EventType {
 	case Link, Rename:
+		if evt.TargetMountID == 0 && evt.TargetInode == 0 {
+			logrus.Debug("Invalid mountID/inode tuple.")
+			return nil
+		}
 		evt.TargetFilename, err = monitor.DentryResolver.ResolveInode(evt.TargetMountID, evt.TargetInode)
 		if err != nil {
 			return errors.Wrap(err, "failed to resolve target dentry path")
@@ -226,7 +235,7 @@ func (fs *FSEvent) PrintMode() string {
 func (fs *FSEvent) PrintFlags() string {
 	switch fs.EventType {
 	case Open:
-		return strings.Join(OpenFlagsToStrings(fs.Flags), ",")
+		return strings.Join(OpenFlag(fs.Flags).Strings(), "|")
 	case SetAttr:
 		return strings.Join(SetAttrFlagsToString(fs.Flags), ",")
 	default:

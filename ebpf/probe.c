@@ -26,8 +26,7 @@ int kprobe_vfs_create(struct pt_regs *ctx)
 {
     struct inode *dir = (struct inode *)PT_REGS_PARM1(ctx);
     struct dentry *dentry = (struct dentry *)PT_REGS_PARM2(ctx);
-    // TODO(dima): figure out mode?
-    //umode_t mode = (umode_t)PT_REGS_PARM3(ctx);
+    // umode_t mode = (umode_t)PT_REGS_PARM3(ctx);
     return trace_create(ctx, dir, dentry);
 }
 
@@ -38,6 +37,21 @@ int kretprobe_vfs_create(struct pt_regs *ctx)
 }
 
 // OPEN
+
+SEC("kprobe/path_openat")
+int kprobe_path_openat(struct pt_regs *ctx)
+{
+    // nameidata.path
+    struct path *path = (struct path *)PT_REGS_PARM1(ctx);
+
+    return trace_path_openat(ctx, path);
+}
+
+SEC("kretprobe/path_openat")
+int kretprobe_path_openat(struct pt_regs *ctx)
+{
+    return trace_path_openat_ret(ctx);
+}
 
 SEC("kprobe/vfs_open")
 int kprobe_vfs_open(struct pt_regs *ctx)

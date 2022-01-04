@@ -50,13 +50,6 @@ More information about the project can be found on github: https://github.com/Gu
 var options CLIOptions
 
 func init() {
-	FSProbeCmd.Flags().BoolVar(
-		&options.UsermodeFiltering,
-		"usermode-filtering",
-		false,
-		`When activated, FSProbe will filter events on the paths 
-in user-mode. In this mode, the FSProbe kernel programs notify on the entire file system.
-It is possible to watch on the paths that do not yet exist`)
 	FSProbeCmd.Flags().StringSliceVar(
 		&options.FSOptions.Paths,
 		"path-filter",

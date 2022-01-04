@@ -15,6 +15,8 @@ limitations under the License.
 */
 package model
 
+import "github.com/Gui774ume/fsprobe/pkg/utils"
+
 // FSProbeOptions - Filesystem probe options
 type FSProbeOptions struct {
 	Recursive bool
@@ -35,6 +37,7 @@ type FSProbeOptions struct {
 	LostChan             chan *LostEvt
 
 	DataHandler DataHandler
+	Mounts      map[int]utils.MountInfo
 }
 
 type DataHandler interface {

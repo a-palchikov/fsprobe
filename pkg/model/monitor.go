@@ -25,8 +25,6 @@ import (
 
 // Monitor - Base monitor
 type Monitor struct {
-	wg                 *sync.WaitGroup
-	collection         *ebpf.Collection
 	ResolutionModeMaps []string
 	DentryResolver     *PathFragmentsResolver
 	FSProbe            FSProbe
@@ -35,6 +33,11 @@ type Monitor struct {
 	Options            FSProbeOptions
 	Probes             map[EventName][]*Probe
 	PerfMaps           []*PerfMap
+
+	wg         *sync.WaitGroup
+	collection *ebpf.Collection
+	// mounts maps mountID -> mount info
+	mounts map[int]utils.MountInfo
 }
 
 // Configure - Configures the probes using the provided options

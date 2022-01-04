@@ -165,10 +165,10 @@ func (to TableOutput) Write(event *model.FSEvent) error {
 		event.Comm,
 		event.SrcInode,
 		event.SrcMountID,
-		model.ErrValueToString(event.Retval),
 		event.PrintMode(),
 		event.PrintFlags(),
 		event.PrintFilenames(),
+		model.ErrValueToString(event.Retval),
 	)
 	return nil
 }

@@ -15,7 +15,10 @@ limitations under the License.
 */
 package model
 
-import "github.com/Gui774ume/ebpf"
+import (
+	"github.com/Gui774ume/ebpf"
+	"github.com/sirupsen/logrus"
+)
 
 // Probe - eBPF probe structure
 type Probe struct {
@@ -51,6 +54,7 @@ func (p *Probe) Start() error {
 		if err := collection.EnableTracepoint(p.SectionName); err != nil {
 			return err
 		}
+		logrus.WithField("name", p.Name).Debug("Started tracepoint.")
 	case ebpf.Kprobe:
 		maxActive := -1
 		if p.KProbeMaxActive != 0 {
@@ -59,6 +63,7 @@ func (p *Probe) Start() error {
 		if err := collection.EnableKprobe(p.SectionName, maxActive); err != nil {
 			return err
 		}
+		logrus.WithField("name", p.Name).Debug("Started kprobe.")
 	}
 	return nil
 }

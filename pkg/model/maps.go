@@ -35,6 +35,10 @@ const (
 	DentryCacheMap = "dentry_cache"
 	// DentryCacheBuilderMap - Array map used to reduce the amount of data on the stack
 	DentryCacheBuilderMap = "dentry_cache_builder"
+	// DentryOoenCacheMap - LRU Hashmap used to cache dentry data between kprobes
+	DentryOpenCacheMap = "dentry_open_cache"
+	// DentryOpenCacheBuilderMap - Array map used to reduce the amount of data on the stack
+	DentryOpenCacheBuilderMap = "dentry_open_cache_builder"
 	// PathsBuilderMap - Array map used by the perf buffer method and the single fragment method to build paths
 	PathsBuilderMap = "paths_builder"
 	// InodesFilterMap - This map is used to push inode filters in kernel space.

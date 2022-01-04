@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"path/filepath"
 	"unsafe"
 
 	"github.com/pkg/errors"
@@ -91,9 +92,10 @@ func (pfv *PathFragmentsValue) GetString() string {
 
 // PathFragmentsResolver - Dentry resolver of the path fragments method
 type PathFragmentsResolver struct {
-	cache *ebpf.Map
-	key   *PathFragmentsKey
-	value *PathFragmentsValue
+	cache  *ebpf.Map
+	key    *PathFragmentsKey
+	value  *PathFragmentsValue
+	mounts map[int]utils.MountInfo
 }
 
 // NewPathFragmentsResolver - Returns a new PathFragmentsResolver instance
@@ -103,20 +105,18 @@ func NewPathFragmentsResolver(monitor *Monitor) (*PathFragmentsResolver, error) 
 		return nil, fmt.Errorf("invalid eBPF map: %s", PathFragmentsMap)
 	}
 	return &PathFragmentsResolver{
-		cache: cache,
-		key:   &PathFragmentsKey{},
-		value: &PathFragmentsValue{},
+		cache:  cache,
+		mounts: monitor.Options.Mounts,
+		key:    &PathFragmentsKey{},
+		value:  &PathFragmentsValue{},
 	}, nil
 }
 
 // ResolveInode - Resolves a pathname from the provided mount id and inode
+// Assumes that mountID != 0 && inode != 0
 func (pfr *PathFragmentsResolver) ResolveInode(mountID uint32, inode uint64) (filename string, err error) {
 	// Don't resolve path if pathnameKey isn't valid
 	pfr.key.Set(mountID, inode)
-	if pfr.key.IsNull() {
-		return "", fmt.Errorf("invalid inode/dev tuple: %s", pfr.key.String())
-	}
-
 	keyB := pfr.key.GetKeyBytes()
 	valueB := []byte{}
 	done := false
@@ -151,7 +151,7 @@ func (pfr *PathFragmentsResolver) ResolveInode(mountID uint32, inode uint64) (fi
 		filename = "/"
 	}
 
-	return filename, err
+	return pfr.resolveWithMount(mountID, filename), err
 }
 
 // RemoveInode - Removes a pathname from the kernel cache using the provided mount id and inode
@@ -164,4 +164,11 @@ func (pfr *PathFragmentsResolver) RemoveInode(mountID uint32, inode uint64) erro
 	keyB := pfr.key.GetKeyBytes()
 	// Delete entry
 	return pfr.cache.Delete(keyB)
+}
+
+func (pfr *PathFragmentsResolver) resolveWithMount(mountID uint32, path string) string {
+	if mount, ok := pfr.mounts[int(mountID)]; ok {
+		return filepath.Join(mount.MountPoint, path)
+	}
+	return path
 }

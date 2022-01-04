@@ -23,6 +23,4 @@ type CLIOptions struct {
 	Verbose        bool
 	OutputFilePath string
 	FSOptions      model.FSProbeOptions
-	// TODO(dima): remove once the generational filtering is working
-	UsermodeFiltering bool
 }

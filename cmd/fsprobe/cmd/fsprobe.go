@@ -26,6 +26,7 @@ import (
 
 	"github.com/Gui774ume/fsprobe/pkg/fsprobe"
 	"github.com/Gui774ume/fsprobe/pkg/fsprobe/monitor/fs"
+	"github.com/Gui774ume/fsprobe/pkg/utils"
 )
 
 func runFSProbeCmd(cmd *cobra.Command, args []string) error {
@@ -46,9 +47,18 @@ func runFSProbeCmd(cmd *cobra.Command, args []string) error {
 	options.FSOptions.EventChan = output.EvtChan
 	options.FSOptions.LostChan = output.LostChan
 
-	options.FSOptions.DataHandler, err = fs.NewFSEventHandler(args, options.FSOptions.Paths)
+	options.FSOptions.DataHandler, err = fs.NewFSEventHandler(args, options.FSOptions.Paths, options.FSOptions.Mounts)
 	if err != nil {
 		return errors.Wrap(err, "failed to create FS event handler")
+	}
+
+	mounts, err := utils.ReadProcSelfMountinfo()
+	if err != nil {
+		return errors.Wrap(err, "failed to read mounts")
+	}
+	options.FSOptions.Mounts = make(map[int]utils.MountInfo, len(mounts))
+	for _, mi := range mounts {
+		options.FSOptions.Mounts[mi.MountID] = mi
 	}
 
 	// 3) Instantiates FSProbe

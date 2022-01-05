@@ -227,6 +227,18 @@ func ReadProcSelfMountinfo() ([]MountInfo, error) {
 	return parseProcSelfMountinfo(content)
 }
 
+// ReadProcSelfMountinfoFromReader lists information about mount points
+// in the process's mount namespace.
+// Ref: http://man7.org/linux/man-pages/man5/proc.5.html
+// for /proc/[pid]/mountinfo
+func ReadProcSelfMountinfoFromReader(r io.Reader) ([]MountInfo, error) {
+	content, err := ioutil.ReadAll(r)
+	if err != nil {
+		return nil, err
+	}
+	return parseProcSelfMountinfo(content)
+}
+
 // MountInfo represents a single line in /proc/self/mountinfo.
 type MountInfo struct {
 	MountID      int

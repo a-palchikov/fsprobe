@@ -13,15 +13,20 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-#ifndef _SETATTR_H_
-#define _SETATTR_H_
+#ifndef _MODIFY_H_
+#define _MODIFY_H_
 
-// trace_security_inode_setattr - Traces a file system setattr event.
+/*
+// trace_modify - Traces a file modification event.
 // @ctx: registers context
 // @dentry: pointer to the dentry of the file
-// @attr: pointer to the iattr structure explaining what happened to the file
-__attribute__((always_inline)) static int trace_setattr(struct pt_regs *ctx, struct dentry *dentry, struct iattr *attr)
+__attribute__((always_inline)) static int trace_modify(struct pt_regs *ctx, struct dentry *dentry, __u32 mask)
 {
+    // We only care about file modification (id est FS_MODIFY)
+    if (mask != 2)
+    {
+        return 0;
+    }
     u32 cpu = bpf_get_smp_processor_id();
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache_builder, &cpu);
     if (!data_cache)
@@ -30,15 +35,10 @@ __attribute__((always_inline)) static int trace_setattr(struct pt_regs *ctx, str
     data_cache->fs_event.src_path_key = 0;
     data_cache->fs_event.target_path_key = 0;
     data_cache->cursor = 0;
-    // Probe type
-    data_cache->fs_event.event = EVENT_SETATTR;
-
-    // Process data
+    // Add process data
     u64 key = fill_process_data(&data_cache->fs_event.process_data);
-
-    // SetAttr data
-    bpf_probe_read(&data_cache->fs_event.flags, sizeof(attr->ia_valid), &attr->ia_valid);
-    bpf_probe_read(&data_cache->fs_event.mode, sizeof(attr->ia_mode), &attr->ia_mode);
+    // Probe type
+    data_cache->fs_event.event = EVENT_MODIFY;
 
     // Add inode data
     data_cache->fs_event.src_inode = get_dentry_ino(dentry);
@@ -46,7 +46,7 @@ __attribute__((always_inline)) static int trace_setattr(struct pt_regs *ctx, str
     struct inode *inode = get_dentry_inode(dentry);
     data_cache->fs_event.src_mount_id = get_inode_mount_id(inode);
 
-    // Dentry cache
+    // Dentry data
     data_cache->src_dentry = dentry;
 
     // Filter
@@ -58,9 +58,9 @@ __attribute__((always_inline)) static int trace_setattr(struct pt_regs *ctx, str
     return 0;
 }
 
-// trace_setattr_ret - Traces the return of a file system setattr event.
+// trace_modify_ret - Traces the return of a file modification event.
 // @ctx: registers context
-__attribute__((always_inline)) static int trace_setattr_ret(struct pt_regs *ctx)
+__attribute__((always_inline)) static int trace_modify_ret(struct pt_regs *ctx)
 {
     u64 key = bpf_get_current_pid_tgid();
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache, &key);
@@ -73,5 +73,20 @@ __attribute__((always_inline)) static int trace_setattr_ret(struct pt_regs *ctx)
     bpf_map_delete_elem(&dentry_cache, &key);
     return 0;
 }
+*/
+
+//SEC("kprobe/__fsnotify_parent")
+//int kprobe_fsnotify_parent(struct pt_regs *ctx)
+//{
+//    struct dentry *dentry = (struct dentry *)PT_REGS_PARM2(ctx);
+//    __u32 mask = (__u32)PT_REGS_PARM3(ctx);
+//    return trace_modify(ctx, dentry, mask);
+//}
+//
+//SEC("kretprobe/__fsnotify_parent")
+//int kretprobe_fsnotify_parent(struct pt_regs *ctx)
+//{
+//    return trace_modify_ret(ctx);
+//}
 
 #endif

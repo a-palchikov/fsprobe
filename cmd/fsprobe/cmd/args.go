@@ -22,10 +22,10 @@ import (
 )
 
 type EventsValue struct {
-	events *[]model.EventName
+	events *[]string
 }
 
-func NewEventsValue(events *[]model.EventName) *EventsValue {
+func NewEventsValue(events *[]string) *EventsValue {
 	return &EventsValue{
 		events: events,
 	}
@@ -39,8 +39,6 @@ func (ev *EventsValue) Set(val string) error {
 	switch val {
 	case "open":
 		*ev.events = append(*ev.events, model.Open)
-	case "create":
-		*ev.events = append(*ev.events, model.Create)
 	case "mkdir":
 		*ev.events = append(*ev.events, model.Mkdir)
 	case "link":

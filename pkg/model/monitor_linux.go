@@ -7,12 +7,24 @@ import (
 // Start - Starts the monitor
 func (m *Monitor) Start() error {
 	// start probes
+	// depends maps probe name -> probe
+	// TODO(dima): revisit this to hide the complexity of dealinh with dependent probes
+	depends := make(map[string]*Probe)
 	for _, probes := range m.Probes {
 		for _, p := range probes {
+			for _, d := range p.DependsOn {
+				depends[d.Name] = d
+			}
 			if err := p.Start(); err != nil {
-				logrus.Errorf("couldn't start probe \"%s\": %v", p.Name, err)
+				logrus.WithError(err).WithField("name", p.Name).Warn("Failed to start probe.")
 				return err
 			}
+		}
+	}
+	for _, p := range depends {
+		if err := p.Start(); err != nil {
+			logrus.WithError(err).WithField("name", p.Name).Warn("Failed to start probe.")
+			return err
 		}
 	}
 	// start polling perf maps

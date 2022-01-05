@@ -43,4 +43,7 @@ const (
 	PathsBuilderMap = "paths_builder"
 	// InodesFilterMap - This map is used to push inode filters in kernel space.
 	InodesFilterMap = "inodes_filter"
+
+	// SyscallsMap caches syscall data between probes
+	SyscallsMap = "syscalls"
 )

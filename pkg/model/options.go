@@ -27,7 +27,7 @@ type FSProbeOptions struct {
 	// will be watched (along with all files in all preceeding sub-directories).
 	// Filter can specify a path that does not yet exist.
 	Paths                []string
-	Events               []EventName
+	Events               []string
 	PerfBufferSize       int
 	UserSpaceChanSize    int
 	DentryResolutionMode DentryResolutionMode

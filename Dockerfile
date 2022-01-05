@@ -28,7 +28,11 @@ RUN --mount=target=/root/.cache,type=cache \
         OUTPUT=/output \
         BUILDDIR=/_build
 
-FROM builder AS shell
+FROM go-builder AS shell
+RUN DEBIAN_FRONTEND=noninteractive && \
+    set -ex && \
+    apt-get -qq install -y \
+    	less
 WORKDIR /go/src/github.com/Gui774ume/fsprobe
 COPY . .
 

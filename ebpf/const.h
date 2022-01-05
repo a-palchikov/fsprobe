@@ -16,7 +16,7 @@ limitations under the License.
 #ifndef _CONST_H_
 #define _CONST_H_
 
-#define LOAD_CONSTANT(param, var) asm("%0 = " param " ll" : "=r"(var))
+#include "defs.h"
 
 // load_inode_filtering_mode - Loads the inode filtering mode
 __attribute__((always_inline)) static u64 load_inode_filtering_mode() {
@@ -30,13 +30,6 @@ __attribute__((always_inline)) static u64 load_follow_mode() {
     u64 follow_mode = 0;
     LOAD_CONSTANT("follow_mode", follow_mode);
     return follow_mode;
-}
-
-// load_recursive_mode - Loads the recursive mode
-__attribute__((always_inline)) static u64 load_recursive_mode() {
-    u64 recursive_mode = 0;
-    LOAD_CONSTANT("recursive_mode", recursive_mode);
-    return recursive_mode;
 }
 
 #endif

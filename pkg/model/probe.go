@@ -31,6 +31,8 @@ type Probe struct {
 	KProbeMaxActive int
 	// Constants will be edited with configuration at runtime
 	Constants []string
+	// DependsOn optionally lists the probes this probe depends on
+	DependsOn []*Probe
 }
 
 // Init - Initializes the probe
@@ -39,6 +41,9 @@ func (p *Probe) Init(m *Monitor) error {
 		return nil
 	}
 	p.monitor = m
+	for _, d := range p.DependsOn {
+		d.monitor = m
+	}
 	return nil
 }
 

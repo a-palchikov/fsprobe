@@ -1,8 +1,13 @@
+#ifndef _SYSCALLS_H_
+#define _SYSCALLS_H_
 
+#include "filter.h"
+#include "process.h"
+#include "bpf_const.h"
 
+#define FSTYPE_LEN 16
 
 struct syscall_cache_t {
-    //struct policy_t policy;
     u64 type;
 
     //struct dentry_resolver_input_t resolver;
@@ -65,15 +70,6 @@ struct bpf_map_def SEC("maps/syscalls") syscalls = {
     .pinning = 0,
     .namespace = "",
 };
-
-struct policy_t __attribute__((always_inline)) fetch_policy(u64 event_type) {
-    struct policy_t *policy = bpf_map_lookup_elem(&filter_policy, &event_type);
-    if (policy) {
-        return *policy;
-    }
-    struct policy_t empty_policy = { };
-    return empty_policy;
-}
 
 // cache_syscall checks the event policy in order to see if the syscall struct can be cached
 void __attribute__((always_inline)) cache_syscall(struct syscall_cache_t *syscall) {
@@ -141,3 +137,5 @@ struct syscall_cache_t * __attribute__((always_inline)) pop_syscall(u64 type) {
 //    syscall->discarded = 1;
 //    return 0;
 //}
+
+#endif

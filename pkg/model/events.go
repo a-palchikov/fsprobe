@@ -28,52 +28,84 @@ import (
 	"github.com/Gui774ume/fsprobe/pkg/utils"
 )
 
-type EventName string
+type Event uint32
 
-var (
-	// Create defines the create event
-	Create EventName = "create"
+const (
+	EVENT_ANY Event = iota
+	EVENT_FIRST_DISCARDER
+	EVENT_OPEN = EVENT_FIRST_DISCARDER
+)
+const (
+	EVENT_MKDIR = iota + EVENT_OPEN + 1
+	EVENT_LINK
+	EVENT_RENAME
+	EVENT_UNLINK
+	EVENT_RMDIR
+
+	EVENT_CHMOD
+	EVENT_CHOWN
+	EVENT_UTIME
+	EVENT_SETXATTR
+	EVENT_REMOVEXATTR
+	EVENT_LAST_DISCARDER = EVENT_REMOVEXATTR
+)
+const (
+	EVENT_MOUNT = iota + EVENT_LAST_DISCARDER + 1
+	EVENT_UMOUNT
+	EVENT_FORK
+	EVENT_EXEC
+	EVENT_EXIT
+	EVENT_INVALIDATE_DENTRY
+	EVENT_SETUID
+	EVENT_SETGID
+	EVENT_CAPSET
+	EVENT_ARGS_ENVS
+	EVENT_MOUNT_RELEASED
+	EVENT_SELINUX
+	EVENT_BPF
+	EVENT_MAX // has to be the last one
+)
+
+const (
 	// Open - Open event
-	Open EventName = "open"
+	Open string = "open"
 	// Mkdir - Mkdir event
-	Mkdir EventName = "mkdir"
+	Mkdir string = "mkdir"
 	// Link - Soft link event
-	Link EventName = "link"
+	Link string = "link"
 	// Rename - Rename event
-	Rename EventName = "rename"
+	Rename string = "rename"
 	// SetAttr - Attribute update event
-	SetAttr EventName = "setattr"
+	SetAttr string = "setattr"
 	// Unlink - File deletion event
-	Unlink EventName = "unlink"
+	Unlink string = "unlink"
 	// Rmdir - Directory deletion event
-	Rmdir EventName = "rmdir"
+	Rmdir string = "rmdir"
 	// Modify - File modification event
-	Modify EventName = "modify"
+	Modify string = "modify"
 	// Unknown - Unknown file event
-	Unknown EventName = "unknown"
+	Unknown string = "unknown"
 )
 
 // GetEventType - Returns the event type
-func GetEventType(evtType uint32) EventName {
+func GetEventType(evtType Event) string {
 	switch evtType {
-	case 0:
+	case EVENT_OPEN:
 		return Open
-	case 1:
+	case EVENT_MKDIR:
 		return Mkdir
-	case 2:
+	case EVENT_LINK:
 		return Link
-	case 3:
+	case EVENT_RENAME:
 		return Rename
-	case 4:
+	case EVENT_UNLINK:
 		return Unlink
-	case 5:
+	case EVENT_RMDIR:
 		return Rmdir
-	case 6:
-		return Modify
-	case 7:
+	//case EVENT_MODIFY:
+	//	return Modify
+	case EVENT_SETXATTR:
 		return SetAttr
-	case 8:
-		return Create
 	default:
 		return Unknown
 	}
@@ -183,7 +215,7 @@ type FSEvent struct {
 	TargetFilename       string    `json:"target_filename,omitempty"`
 	TargetMountID        uint32    `json:"target_mount_id,omitempty"`
 	Retval               int32     `json:"retval"`
-	EventType            EventName `json:"event_type"`
+	EventType            string    `json:"event_type"`
 }
 
 func (e *FSEvent) UnmarshalBinary(data []byte, bootTime time.Time) (int, error) {
@@ -209,7 +241,7 @@ func (e *FSEvent) UnmarshalBinary(data []byte, bootTime time.Time) (int, error) 
 	e.TargetPathnameLength = utils.ByteOrder.Uint32(data[80:84])
 	e.TargetMountID = utils.ByteOrder.Uint32(data[84:88])
 	e.Retval = int32(utils.ByteOrder.Uint32(data[88:92]))
-	e.EventType = GetEventType(utils.ByteOrder.Uint32(data[92:96]))
+	e.EventType = GetEventType(Event(utils.ByteOrder.Uint32(data[92:96])))
 	return 96, nil
 }
 

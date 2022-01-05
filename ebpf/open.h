@@ -34,9 +34,7 @@ __attribute__((always_inline)) static int trace_path_openat(struct pt_regs *ctx,
     struct dentry_open_cache_t *data_cache = bpf_map_lookup_elem(&dentry_open_cache_builder, &cpu);
     if (!data_cache)
         return 0;
-    // Add process data
     u64 key = fill_process_data(&data_cache->fs_event.process_data);
-    // Probe type
     data_cache->fs_event.event = EVENT_OPEN;
 
     // Add inode data
@@ -46,13 +44,11 @@ __attribute__((always_inline)) static int trace_path_openat(struct pt_regs *ctx,
     //// Mount ID
     //data_cache->fs_event.src_mount_id = get_path_mount_id(path);
 
-    // Dentry data
     data_cache->path = path;
 
     // Fall-through to kretprobe as we can only filter
     // upon return
     
-    // Send to cache
     bpf_map_update_elem(&dentry_open_cache, &key, data_cache, BPF_ANY);
     return 0;
 }
@@ -79,24 +75,19 @@ __attribute__((always_inline)) static int trace_path_openat_ret(struct pt_regs *
     
     struct dentry_cache_t value = {};
     value.fs_event = data_cache->fs_event;
-    // Add inode data
     struct dentry *dentry;
-    bpf_probe_read(&dentry, sizeof(struct dentry *), &data_cache->path->dentry);
+    bpf_probe_read(&dentry, sizeof(dentry), &data_cache->path->dentry);
     value.fs_event.src_inode = get_dentry_ino(dentry);
-    //bpf_printk("path_openat_x: failure, will record: ino=%ld.", value.fs_event.src_inode);
-    // Mount ID
     value.fs_event.src_mount_id = get_path_mount_id(data_cache->path);
 
-    // Filter
     if (!match(&value, FILTER_SRC))
-    {
-        //bpf_printk("path_openat_x: no match, bail.");
         return 0;
-    }
 
+#ifdef DEBUG
     bpf_printk("path_openat_x: match, resolve paths, ino=%ld, mnt_id=%ld.",
                value.fs_event.src_inode,
                value.fs_event.src_mount_id);
+#endif
 
     // Resolve paths
     // TODO(dima): add input filename from the corresponding syscall
@@ -114,31 +105,18 @@ __attribute__((always_inline)) static int trace_open(struct pt_regs *ctx, struct
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache_builder, &cpu);
     if (!data_cache)
         return 0;
-    // Reset pathname keys (could mess up resolution if there was some leftover data)
     reset_cache_entry(data_cache);
-    // Add process data
     u64 key = fill_process_data(&data_cache->fs_event.process_data);
-    // Probe type
     data_cache->fs_event.event = EVENT_OPEN;
-
-    // Add inode data
     struct dentry *dentry;
     bpf_probe_read(&dentry, sizeof(struct dentry *), &path->dentry);
     data_cache->fs_event.src_inode = get_dentry_ino(dentry);
-    // Mount ID
     data_cache->fs_event.src_mount_id = get_path_mount_id(path);
-
-    // Dentry data
     data_cache->src_dentry = dentry;
 
-    // Filter
     if (!match(data_cache, FILTER_SRC))
-    {
-        //bpf_printk("open_e: no match, bail.");
         return 0;
-    }
 
-    // Send to cache
     bpf_map_update_elem(&dentry_cache, &key, data_cache, BPF_ANY);
     return 0;
 }
@@ -150,16 +128,40 @@ __attribute__((always_inline)) static int trace_open_ret(struct pt_regs *ctx)
     u64 key = bpf_get_current_pid_tgid();
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache, &key);
     if (!data_cache)
-    {
-        //bpf_printk("open_x: no map entry for key, bail.");
         return 0;
-    }
     data_cache->fs_event.retval = PT_REGS_RC(ctx);
 
-    // Resolve paths
     resolve_paths(ctx, data_cache, RESOLVE_SRC | EMIT_EVENT);
     bpf_map_delete_elem(&dentry_cache, &key);
     return 0;
+}
+
+SEC("kprobe/path_openat")
+int kprobe_path_openat(struct pt_regs *ctx)
+{
+    // nameidata.path
+    struct path *path = (struct path *)PT_REGS_PARM1(ctx);
+
+    return trace_path_openat(ctx, path);
+}
+
+SEC("kretprobe/path_openat")
+int kretprobe_path_openat(struct pt_regs *ctx)
+{
+    return trace_path_openat_ret(ctx);
+}
+
+SEC("kprobe/vfs_open")
+int kprobe_vfs_open(struct pt_regs *ctx)
+{
+    struct path *path = (struct path *)PT_REGS_PARM1(ctx);
+    return trace_open(ctx, path);
+}
+
+SEC("kretprobe/vfs_open")
+int kretprobe_vfs_open(struct pt_regs *ctx)
+{
+    return trace_open_ret(ctx);
 }
 
 #endif

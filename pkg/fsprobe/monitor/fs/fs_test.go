@@ -9,6 +9,10 @@ import (
 )
 
 func TestResolvesPaths(t *testing.T) {
+	var rootMount = utils.MountInfo{
+		MountID:    1,
+		MountPoint: "/",
+	}
 	var testCases = []struct {
 		comment  string
 		mounts   []utils.MountInfo
@@ -39,7 +43,7 @@ func TestResolvesPaths(t *testing.T) {
 			expected: []resolvedPath{
 				{
 					path: "/path/to/dir/subdir/dir2/file",
-					mi: &utils.MountInfo{
+					mi: utils.MountInfo{
 						MountID:    3,
 						MountPoint: "/path/to/dir/subdir/dir2",
 					},
@@ -49,17 +53,20 @@ func TestResolvesPaths(t *testing.T) {
 		{
 			comment: "adds an entry without mountpoint if no match found",
 			mounts: []utils.MountInfo{
+				rootMount,
 				{
-					MountID:    1,
+					MountID:    2,
 					MountPoint: "/path/to/dir",
 				},
 			},
 			paths: []string{"/path/to/dir2", "/path/to/file2"},
 			expected: []resolvedPath{
 				{
+					mi:   rootMount,
 					path: "/path/to/dir2",
 				},
 				{
+					mi:   rootMount,
 					path: "/path/to/file2",
 				},
 			},
@@ -67,19 +74,21 @@ func TestResolvesPaths(t *testing.T) {
 		{
 			comment: "correctly matches on boundary",
 			mounts: []utils.MountInfo{
+				rootMount,
 				{
-					MountID:    1,
+					MountID:    2,
 					MountPoint: "/path/to/dir",
 				},
 			},
 			paths: []string{"/path/to/dir", "/path/to/dir2"},
 			expected: []resolvedPath{
 				{
+					mi:   rootMount,
 					path: "/path/to/dir2",
 				},
 				{
-					mi: &utils.MountInfo{
-						MountID:    1,
+					mi: utils.MountInfo{
+						MountID:    2,
 						MountPoint: "/path/to/dir",
 					},
 					path: "/path/to/dir",
@@ -89,14 +98,12 @@ func TestResolvesPaths(t *testing.T) {
 		{
 			comment: "skips the root mount",
 			mounts: []utils.MountInfo{
-				{
-					MountID:    1,
-					MountPoint: "/",
-				},
+				rootMount,
 			},
 			paths: []string{"/path/to/dir"},
 			expected: []resolvedPath{
 				{
+					mi:   rootMount,
 					path: "/path/to/dir",
 				},
 			},
@@ -104,60 +111,114 @@ func TestResolvesPaths(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.comment, func(t *testing.T) {
-			paths := resolveMounts(tc.paths, tc.mounts)
-			require.Equal(t, tc.expected, paths)
+			paths := resolveMounts(tc.paths, asMap(tc.mounts))
+			require.ElementsMatch(t, tc.expected, paths)
 		})
 	}
 }
 
 func TestCanMatchFromResolvedPaths(t *testing.T) {
-	const mountID = 1
+	var rootMount = utils.MountInfo{
+		MountID:    1,
+		MountPoint: "/",
+	}
+	var mount = utils.MountInfo{
+		MountID:    2,
+		MountPoint: "/mount/point",
+	}
 	paths := []resolvedPath{
-		{path: "/path/to/watch"},
 		{
-			mi: &utils.MountInfo{
-				MountID:    mountID,
-				MountPoint: "/mount/point",
-			},
+			mi:   rootMount,
+			path: "/path/to/watch",
+		},
+		{
+			mi:   mount,
 			path: "/mount/point/another/path/to/watch",
 		},
 	}
+	type match struct {
+		mountID int
+		path    string
+	}
 	var testCases = []struct {
-		comment string
-		input   []string
-		matches []string
+		comment  string
+		input    []match
+		expected []match
 	}{
 		{
 			comment: "file in the boundary directory",
-			input:   []string{"/path/to/file"},
-			matches: []string{"/path/to/file"},
+			input: []match{
+				{
+					mountID: rootMount.MountID,
+					path:    "/path/to/file",
+				},
+			},
+			expected: []match{
+				{
+					mountID: rootMount.MountID,
+					path:    "/path/to/file",
+				},
+			},
 		},
 		{
 			comment: "exact match",
-			input:   []string{"/path/to/watch"},
-			matches: []string{"/path/to/watch"},
+			input: []match{
+				{
+					mountID: rootMount.MountID,
+					path:    "/path/to/watch",
+				},
+			},
+			expected: []match{
+				{
+					mountID: rootMount.MountID,
+					path:    "/path/to/watch",
+				},
+			},
 		},
 		{
 			comment: "file in the boundary directory with a mountpoint",
-			input:   []string{"/another/path/to/file"},
-			matches: []string{"/another/path/to/file"},
+			input: []match{
+				{
+					mountID: mount.MountID,
+					path:    "/mount/point/another/path/to/file",
+				},
+			},
+			expected: []match{
+				{
+					mountID: mount.MountID,
+					path:    "/mount/point/another/path/to/file",
+				},
+			},
 		},
 		{
-			comment: "file in the boundary directory with a mountpoint",
-			input:   []string{"/another/path/to/dir/file"},
+			comment: "file in the descendant directory",
+			input: []match{
+				{
+					mountID: mount.MountID,
+					path:    "/mount/point/another/path/to/dir/file",
+				},
+			},
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.comment, func(t *testing.T) {
-			var matches []string
+			var matches []match
 			for _, input := range tc.input {
 				for _, p := range paths {
-					if p.matches(mountID, input) {
-						matches = append(matches, input)
+					if p.matches(input.mountID, input.path) {
+						matches = append(matches, match{path: input.path, mountID: mount.MountID})
 					}
 				}
 			}
-			require.Equal(t, tc.matches, matches)
+			require.Equal(t, tc.expected, matches)
 		})
 	}
+}
+
+func asMap(mounts []utils.MountInfo) (result map[int]utils.MountInfo) {
+	result = make(map[int]utils.MountInfo, len(mounts))
+	for _, m := range mounts {
+		result[m.MountID] = m
+	}
+	return result
 }

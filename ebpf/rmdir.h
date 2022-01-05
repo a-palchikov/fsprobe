@@ -16,38 +16,45 @@ limitations under the License.
 #ifndef _RMDIR_H_
 #define _RMDIR_H_
 
+#include "syscalls.h"
+
+long __attribute__((always_inline)) trace__sys_rmdir() {
+    struct syscall_cache_t syscall = {
+        .type = EVENT_RMDIR,
+    };
+
+    cache_syscall(&syscall);
+    return 0;
+}
+
+int __attribute__((always_inline)) rmdir_predicate(u64 type) {
+    return type == EVENT_RMDIR || type == EVENT_UNLINK;
+}
+
 // trace_rmdir - Traces a file system rmdir event.
 // @ctx: registers context
 // @dir: pointer to the directory that contains the directory to delete
 // @dentry: pointer to the dentry of the directory to delete
 __attribute__((always_inline)) static int trace_rmdir(struct pt_regs *ctx, struct inode *dir, struct dentry *dentry)
 {
+    struct syscall_cache_t *syscall = peek_syscall_with(rmdir_predicate);
+    if (!syscall)
+        return 0;
+
     u32 cpu = bpf_get_smp_processor_id();
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache_builder, &cpu);
     if (!data_cache)
         return 0;
-    // Reset pathname keys (could mess up resolution if there was some leftover data)
-    data_cache->fs_event.src_path_key = 0;
-    data_cache->fs_event.target_path_key = 0;
-    data_cache->cursor = 0;
-    // Add process data
+    reset_cache_entry(data_cache);
     u64 key = fill_process_data(&data_cache->fs_event.process_data);
-    // Probe type
     data_cache->fs_event.event = EVENT_RMDIR;
-
-    // Add inode data
     data_cache->fs_event.src_inode = get_dentry_ino(dentry);
-    // Add mount ID
-    data_cache->fs_event.src_mount_id = get_inode_mount_id(dir);
-
-    // Dentry data
+    data_cache->fs_event.src_mount_id = syscall->rmdir.file.path_key.mount_id;
     data_cache->src_dentry = dentry;
 
-    // Filter
     if (!match(data_cache, FILTER_SRC))
         return 0;
 
-    // Send to cache
     bpf_map_update_elem(&dentry_cache, &key, data_cache, BPF_ANY);
     return 0;
 }
@@ -56,16 +63,39 @@ __attribute__((always_inline)) static int trace_rmdir(struct pt_regs *ctx, struc
 // @ctx: registers context
 __attribute__((always_inline)) static int trace_rmdir_ret(struct pt_regs *ctx)
 {
+    struct syscall_cache_t *syscall = pop_syscall_with(rmdir_predicate);
+    if (!syscall)
+        return 0;
+
     u64 key = bpf_get_current_pid_tgid();
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache, &key);
     if (!data_cache)
         return 0;
     data_cache->fs_event.retval = PT_REGS_RC(ctx);
 
-    // Resolve paths
     resolve_paths(ctx, data_cache, RESOLVE_SRC | EMIT_EVENT);
     bpf_map_delete_elem(&dentry_cache, &key);
     return 0;
+}
+
+SEC("kprobe/do_rmdir")
+int kprobe_do_rmdir(struct pt_regs *ctx)
+{
+    return trace__sys_rmdir();
+}
+
+SEC("kprobe/vfs_rmdir")
+int kprobe_vfs_rmdir(struct pt_regs *ctx)
+{
+    struct inode *dir = (struct inode *)PT_REGS_PARM1(ctx);
+    struct dentry *dentry = (struct dentry *)PT_REGS_PARM2(ctx);
+    return trace_rmdir(ctx, dir, dentry);
+}
+
+SEC("kretprobe/vfs_rmdir")
+int kretprobe_vfs_rmdir(struct pt_regs *ctx)
+{
+    return trace_rmdir_ret(ctx);
 }
 
 #endif

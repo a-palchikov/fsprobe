@@ -123,7 +123,7 @@ func BenchmarkOpen(b *testing.B) {
 
 func BenchmarkFSProbeFragmentsOpen(b *testing.B) {
 	benchmarkFSProbe(b, model.FSProbeOptions{
-		Events:            []model.EventName{model.Open},
+		Events:            []string{model.Open},
 		PerfBufferSize:    4096,
 		UserSpaceChanSize: 1000,
 		PathsFiltering:    true,

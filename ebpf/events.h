@@ -25,5 +25,7 @@ limitations under the License.
 #include "rmdir.h"
 #include "setattr.h"
 #include "unlink.h"
+#include "filename.h"
+#include "mnt.h"
 
 #endif

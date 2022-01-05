@@ -31,7 +31,7 @@ type Monitor struct {
 	InodeFilterSection string
 	Name               string
 	Options            FSProbeOptions
-	Probes             map[EventName][]*Probe
+	Probes             map[string][]*Probe
 	PerfMaps           []*PerfMap
 
 	wg         *sync.WaitGroup
@@ -50,6 +50,9 @@ func (m *Monitor) Configure() {
 			}
 			for _, p := range probes {
 				p.Enabled = true
+				for _, d := range p.DependsOn {
+					d.Enabled = true
+				}
 			}
 		}
 	} else {
@@ -61,6 +64,9 @@ func (m *Monitor) Configure() {
 			}
 			for _, p := range probes {
 				p.Enabled = true
+				for _, d := range p.DependsOn {
+					d.Enabled = true
+				}
 			}
 		}
 	}

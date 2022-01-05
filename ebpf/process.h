@@ -16,9 +16,6 @@ limitations under the License.
 #ifndef _PROCESS_H_
 #define _PROCESS_H_
 
-// TTY_NAME_LEN - Maximum length of the TTY name
-#define TTY_NAME_LEN 16
-
 // process_ctx_t - Contains all the process context collected for a file system event
 struct process_ctx_t
 {

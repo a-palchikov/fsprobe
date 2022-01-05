@@ -47,18 +47,13 @@ func runFSProbeCmd(cmd *cobra.Command, args []string) error {
 	options.FSOptions.EventChan = output.EvtChan
 	options.FSOptions.LostChan = output.LostChan
 
+	options.FSOptions.Mounts, err = readProcSelfMountinfoAsMap()
+	if err != nil {
+		return errors.Wrap(err, "failed to read mountinfo")
+	}
 	options.FSOptions.DataHandler, err = fs.NewFSEventHandler(args, options.FSOptions.Paths, options.FSOptions.Mounts)
 	if err != nil {
 		return errors.Wrap(err, "failed to create FS event handler")
-	}
-
-	mounts, err := utils.ReadProcSelfMountinfo()
-	if err != nil {
-		return errors.Wrap(err, "failed to read mounts")
-	}
-	options.FSOptions.Mounts = make(map[int]utils.MountInfo, len(mounts))
-	for _, mi := range mounts {
-		options.FSOptions.Mounts[mi.MountID] = mi
 	}
 
 	// 3) Instantiates FSProbe
@@ -114,4 +109,16 @@ func wait() {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	<-sig
+}
+
+func readProcSelfMountinfoAsMap() (result map[int]utils.MountInfo, err error) {
+	mounts, err := utils.ReadProcSelfMountinfo()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to read mounts")
+	}
+	result = make(map[int]utils.MountInfo, len(mounts))
+	for _, mi := range mounts {
+		result[mi.MountID] = mi
+	}
+	return result, nil
 }

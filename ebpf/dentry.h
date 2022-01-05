@@ -16,6 +16,8 @@ limitations under the License.
 #ifndef _DENTRY_H_
 #define _DENTRY_H_
 
+#include "defs.h"
+
 #define DENTRY_RESOLUTION_FRAGMENTS         0
 #define DENTRY_RESOLUTION_SINGLE_FRAGMENT   1
 #define DENTRY_RESOLUTION_PERF_BUFFER       2
@@ -28,11 +30,6 @@ limitations under the License.
 #define DENTRY_OFFSETOF_INODE 48 // offsetof(struct dentry, d_inode)
 
 u32 __attribute__((always_inline)) get_mount_offset_of_mount_id(void) {
-    //TODO(dima): use a constant to dynamically determine the offset based on the
-    //kernel version
-    //u64 offset;
-    //LOAD_CONSTANT("mount_id_offset", offset);
-    //return offset ? offset : 284; // offsetof(struct mount, mnt_id)
     return 284;
 }
 
@@ -41,6 +38,14 @@ int __attribute__((always_inline)) get_vfsmount_mount_id(struct vfsmount *mnt) {
     // bpf_probe_read(&mount_id, sizeof(mount_id), (char *)mnt + offsetof(struct mount, mnt_id) - offsetof(struct mount, mnt));
     bpf_probe_read(&mount_id, sizeof(mount_id), (char *)mnt + get_mount_offset_of_mount_id() - MNT_OFFSETOF_MNT);
     return mount_id;
+}
+
+unsigned long get_dentry_ino(struct dentry *dentry);
+
+unsigned long __attribute__((always_inline)) get_path_dentry_ino(struct path *path) {
+    struct dentry *dentry;
+    bpf_probe_read(&dentry, sizeof(dentry), &path->dentry);
+    return get_dentry_ino(dentry);
 }
 
 int __attribute__((always_inline)) get_path_mount_id(struct path *path) {

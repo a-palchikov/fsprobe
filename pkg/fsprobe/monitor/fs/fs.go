@@ -26,8 +26,36 @@ import (
 	"github.com/Gui774ume/fsprobe/pkg/model"
 	"github.com/Gui774ume/fsprobe/pkg/utils"
 )
+import "fmt"
 
 var (
+	filenameCreateProbes = []*model.Probe{
+		{
+			Name:        "filename_create",
+			SectionName: "kprobe/filename_create",
+			Enabled:     false,
+			Type:        ebpf.Kprobe,
+		},
+		{
+			Name:        "filename_create_ret",
+			SectionName: "kretprobe/filename_create",
+			Enabled:     false,
+			Type:        ebpf.Kprobe,
+		},
+	}
+	mntWantWriteProbe = &model.Probe{
+		Name:        "mnt_want_write",
+		SectionName: "kprobe/mnt_want_write",
+		Enabled:     false,
+		Type:        ebpf.Kprobe,
+	}
+	linkPathWalkProbe = &model.Probe{
+		Name:        "link_path_walk",
+		SectionName: "kprobe/link_path_walk",
+		Enabled:     false,
+		Type:        ebpf.Kprobe,
+	}
+
 	// Monitor - eBPF FIM event monitor
 	Monitor = &model.Monitor{
 		Name:               "FileSystem",
@@ -40,25 +68,26 @@ var (
 			model.DentryOpenCacheMap,
 			model.DentryOpenCacheBuilderMap,
 			model.InodesFilterMap,
+			model.SyscallsMap,
 		},
-		Probes: map[model.EventName][]*model.Probe{
-			model.Create: {
-				{
-					Name:        "create",
-					SectionName: "kprobe/vfs_create",
-					Enabled:     false,
-					Type:        ebpf.Kprobe,
-					Constants: []string{
-						model.InodeFilteringModeConst,
-					},
-				},
-				{
-					Name:        "create_ret",
-					SectionName: "kretprobe/vfs_create",
-					Enabled:     false,
-					Type:        ebpf.Kprobe,
-				},
-			},
+		Probes: map[string][]*model.Probe{
+			//model.Create: {
+			//	{
+			//		Name:        "create",
+			//		SectionName: "kprobe/vfs_create",
+			//		Enabled:     false,
+			//		Type:        ebpf.Kprobe,
+			//		Constants: []string{
+			//			model.InodeFilteringModeConst,
+			//		},
+			//	},
+			//	{
+			//		Name:        "create_ret",
+			//		SectionName: "kretprobe/vfs_create",
+			//		Enabled:     false,
+			//		Type:        ebpf.Kprobe,
+			//	},
+			//},
 			model.Open: {
 				{
 					Name:        "open",
@@ -102,16 +131,47 @@ var (
 					Constants: []string{
 						model.InodeFilteringModeConst,
 					},
+					DependsOn: append([]*model.Probe{linkPathWalkProbe}, filenameCreateProbes...),
 				},
 				{
 					Name:        "mkdir_ret",
 					SectionName: "kretprobe/vfs_mkdir",
 					Enabled:     false,
 					Type:        ebpf.Kprobe,
+				},
+				//{
+				//	Name:        "sys_mkdir",
+				//	SectionName: "kprobe/__x64_sys_mkdir",
+				//	Enabled:     false,
+				//	Type:        ebpf.Kprobe,
+				//},
+				//{
+				//	Name:        "sys_exit_mkdir",
+				//	SectionName: "tracepoint/syscall__sys_exit_mkdir",
+				//	Enabled:     false,
+				//	Type:        ebpf.TracePoint,
+				//},
+				{
+					Name:        "do_mkdirat",
+					SectionName: "kprobe/do_mkdirat",
+					Enabled:     false,
+					Type:        ebpf.Kprobe,
+				},
+				{
+					Name:        "do_mkdirat_ret",
+					SectionName: "kretprobe/do_mkdirat",
+					Enabled:     false,
+					Type:        ebpf.Kprobe,
 					Constants: []string{
-						model.RecursiveModeConst,
+						model.InodeFilteringModeConst,
 					},
 				},
+				//{
+				//	Name:        "sys_exit_mkdir",
+				//	SectionName: "tracepoint/syscall__sys_exit_mkdir",
+				//	Enabled:     false,
+				//	Type:        ebpf.TracePoint,
+				//},
 			},
 			model.Unlink: {
 				{
@@ -122,6 +182,7 @@ var (
 					Constants: []string{
 						model.InodeFilteringModeConst,
 					},
+					DependsOn: []*model.Probe{mntWantWriteProbe},
 				},
 				{
 					Name:        "unlink_ret",
@@ -139,6 +200,7 @@ var (
 					Constants: []string{
 						model.InodeFilteringModeConst,
 					},
+					DependsOn: []*model.Probe{mntWantWriteProbe},
 				},
 				{
 					Name:        "rmdir_ret",
@@ -149,6 +211,12 @@ var (
 			},
 			model.Link: {
 				{
+					Name:        "linkat",
+					SectionName: "kprobe/do_linkat",
+					Enabled:     false,
+					Type:        ebpf.Kprobe,
+				},
+				{
 					Name:        "link",
 					SectionName: "kprobe/vfs_link",
 					Enabled:     false,
@@ -156,6 +224,8 @@ var (
 					Constants: []string{
 						model.InodeFilteringModeConst,
 					},
+					//DependsOn: []*model.Probe{filenameCreateProbe},
+					DependsOn: filenameCreateProbes,
 				},
 				{
 					Name:        "link_ret",
@@ -166,6 +236,12 @@ var (
 			},
 			model.Rename: {
 				{
+					Name:        "renameat",
+					SectionName: "kprobe/do_renameat2",
+					Enabled:     false,
+					Type:        ebpf.Kprobe,
+				},
+				{
 					Name:        "rename",
 					SectionName: "kprobe/vfs_rename",
 					Enabled:     false,
@@ -173,6 +249,7 @@ var (
 					Constants: []string{
 						model.InodeFilteringModeConst,
 					},
+					DependsOn: []*model.Probe{mntWantWriteProbe},
 				},
 				{
 					Name:        "rename_ret",
@@ -185,21 +262,21 @@ var (
 				},
 			},
 			model.Modify: {
-				{
-					Name:        "modify",
-					SectionName: "kprobe/__fsnotify_parent",
-					Enabled:     false,
-					Type:        ebpf.Kprobe,
-					Constants: []string{
-						model.InodeFilteringModeConst,
-					},
-				},
-				{
-					Name:        "modify_ret",
-					SectionName: "kretprobe/__fsnotify_parent",
-					Enabled:     false,
-					Type:        ebpf.Kprobe,
-				},
+				//{
+				//	Name:        "modify",
+				//	SectionName: "kprobe/__fsnotify_parent",
+				//	Enabled:     false,
+				//	Type:        ebpf.Kprobe,
+				//	Constants: []string{
+				//		model.InodeFilteringModeConst,
+				//	},
+				//},
+				//{
+				//	Name:        "modify_ret",
+				//	SectionName: "kretprobe/__fsnotify_parent",
+				//	Enabled:     false,
+				//	Type:        ebpf.Kprobe,
+				//},
 			},
 			model.SetAttr: {
 				{
@@ -262,16 +339,17 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 		"path":   event.SrcFilename,
 		"type":   event.EventType,
 		"mnt_id": event.SrcMountID,
+		"comm":   event.Comm,
+		"ret":    event.Retval,
 	})
-	// logger.Info("New event.")
-	var err error
+	//logger.Info("New event.")
 	var matched bool
 	switch event.EventType {
 	case model.Open:
-		if openFlag(event.Flags)&model.O_CREAT != 0 {
-			matched, err = r.maybeAddInodeFilter(monitor,
+		matched = r.matches(int(event.SrcMountID), event.SrcFilename)
+		if matched && openFlag(event.Flags)&model.O_CREAT != 0 {
+			err := r.maybeAddInodeFilter(monitor,
 				uint32(event.SrcInode),
-				int(event.SrcMountID),
 				event.SrcFilename,
 				logger)
 			if err != nil {
@@ -279,55 +357,62 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 			}
 		}
 	case model.Mkdir:
-		matched, err = r.maybeAddInodeFilter(monitor,
-			uint32(event.SrcInode),
-			int(event.SrcMountID),
-			event.SrcFilename,
-			logger)
-		if err != nil {
-			logger.WithError(err).Warn("Failed to add inode filter.")
+		matched = r.matches(int(event.SrcMountID), event.SrcFilename)
+		if matched {
+			err := r.maybeAddInodeFilter(monitor,
+				uint32(event.SrcInode),
+				event.SrcFilename,
+				logger)
+			if err != nil {
+				logger.WithError(err).Warn("Failed to add inode filter.")
+			}
 		}
 	case model.Rename:
-		matched, err = r.maybeAddInodeFilter(monitor,
-			uint32(event.TargetInode),
-			// Match on the source mount ID
-			int(event.SrcMountID),
-			event.TargetFilename,
-			logger.WithField("target", event.TargetFilename))
-		if err != nil {
-			logger.WithError(err).Warn("Failed to add inode filter.")
+		matchedSrc := r.matches(int(event.SrcMountID), event.SrcFilename)
+		matchedTarget := r.matches(int(event.TargetMountID), event.TargetFilename)
+		matched = matchedSrc || matchedTarget
+		if matchedTarget {
+			err := r.maybeAddInodeFilter(monitor,
+				uint32(event.TargetInode),
+				event.TargetFilename,
+				logger.WithField("target", event.TargetFilename))
+			if err != nil {
+				logger.WithError(err).Warn("Failed to add inode filter.")
+			}
 		}
 		if err := removeCacheEntry(event, monitor); err != nil {
 			logrus.WithError(err).Warn("Failed to remove entry from cache.")
 		}
 	case model.Unlink, model.Rmdir:
+		matched = r.matches(int(event.SrcMountID), event.SrcFilename)
 		if err := removeCacheEntry(event, monitor); err != nil {
 			logrus.WithError(err).Warn("Failed to remove entry from cache.")
 		}
+	default:
+		logger.Warn("Unhandled event type.")
 	}
 
 	if !matched {
+		//logger.Info("Unmatched.")
 		return
 	}
 
-	logger.Debug("Matched.")
+	//logger.Debug("Matched.")
 	// Dispatch event
 	select {
 	case monitor.Options.EventChan <- event:
 	default:
+		logger.Debug("Dropped event.")
 	}
 }
 
 // maybeAddInodeFilter adds a new inode filter at the specified path
 // if the path matches one of the filters.
 // Returns true for a match, false - otherwise
-func (r *FSEventHandler) maybeAddInodeFilter(monitor *model.Monitor, inode uint32, mountID int, path string, logger logrus.FieldLogger) (matched bool, err error) {
-	if r.matches(mountID, path) {
-		err := monitor.AddInodeFilter(inode, path)
-		logger.WithError(err).Info("Added new inode filter.")
-		return true, err
-	}
-	return false, nil
+func (r *FSEventHandler) maybeAddInodeFilter(monitor *model.Monitor, inode uint32, path string, logger logrus.FieldLogger) error {
+	err := monitor.AddInodeFilter(inode, path)
+	logger.WithError(err).Info("Added new inode filter.")
+	return err
 }
 
 func removeCacheEntry(event *model.FSEvent, m *model.Monitor) error {
@@ -350,6 +435,10 @@ func (r *FSEventHandler) matches(mountID int, path string) bool {
 	return false
 }
 
+// resolveMounts maps the most specific mount to each path in paths.
+// It uses prefix matching instead of stat since the paths might be non-existent
+// at this point.
+// Returns the list of resulting mappings
 func resolveMounts(paths []string, mounts map[int]utils.MountInfo) (result []resolvedPath) {
 	// path -> most specific mountpoint
 	pathMap := make(map[string]utils.MountInfo, len(paths))
@@ -373,20 +462,24 @@ func (r *resolvedPath) matches(mountID int, path string) bool {
 	if r.mi.MountID != mountID {
 		return false
 	}
+	if r.path == path {
+		return true
+	}
 	dir := filepath.Dir(path)
-	return strings.HasPrefix(r.path, dir)
+	if strings.HasPrefix(r.path, dir) {
+		return true
+	}
+	return false
 }
 
-//func (r resolvedPath) String() string {
-//	var b strings.Builder
-//	fmt.Fprint(&b, "resolvedPath(")
-//	if r.mi != nil {
-//		fmt.Fprintf(&b, "mnt_id=%d,mntpoint=%s,", r.mi.MountID, r.mi.MountPoint)
-//	}
-//	fmt.Fprint(&b, "path=", r.path)
-//	fmt.Fprint(&b, ")")
-//	return b.String()
-//}
+func (r resolvedPath) String() string {
+	var b strings.Builder
+	fmt.Fprint(&b, "resolvedPath(")
+	fmt.Fprintf(&b, "mnt_id=%d,mntpoint=%s,path=%s",
+		r.mi.MountID, r.mi.MountPoint, r.path)
+	fmt.Fprint(&b, ")")
+	return b.String()
+}
 
 type resolvedPath struct {
 	mi   utils.MountInfo

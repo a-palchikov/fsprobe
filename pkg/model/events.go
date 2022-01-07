@@ -131,8 +131,12 @@ func resolvePaths(data []byte, evt *FSEvent, monitor *Monitor, read int) (err er
 	if evt.SrcPathnameKey != 0 {
 		inode = uint64(evt.SrcPathnameKey)
 	}
+	logger := logrus.WithFields(logrus.Fields{
+		"type": evt.EventType,
+		"comm": evt.Comm,
+	})
 	if evt.SrcMountID == 0 && inode == 0 {
-		logrus.Debug("Invalid mountID/inode tuple.")
+		logger.Debug("Invalid mountID/inode tuple.")
 		return nil
 	}
 	evt.SrcFilename, err = monitor.DentryResolver.ResolveInode(evt.SrcMountID, inode)
@@ -142,7 +146,7 @@ func resolvePaths(data []byte, evt *FSEvent, monitor *Monitor, read int) (err er
 	switch evt.EventType {
 	case Link, Rename:
 		if evt.TargetMountID == 0 && evt.TargetInode == 0 {
-			logrus.Debug("Invalid mountID/inode tuple.")
+			logger.Debug("Invalid mountID/inode tuple.")
 			return nil
 		}
 		evt.TargetFilename, err = monitor.DentryResolver.ResolveInode(evt.TargetMountID, evt.TargetInode)
@@ -216,6 +220,10 @@ type FSEvent struct {
 	TargetMountID        uint32    `json:"target_mount_id,omitempty"`
 	Retval               int32     `json:"retval"`
 	EventType            string    `json:"event_type"`
+}
+
+func (e FSEvent) IsSuccess() bool {
+	return e.Retval == 0
 }
 
 func (e *FSEvent) UnmarshalBinary(data []byte, bootTime time.Time) (int, error) {

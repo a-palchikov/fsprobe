@@ -30,7 +30,7 @@ export DOCKERFILE_PATH DOCKERCONTEXT_PATH OUTPUTDIR
 
 .PHONY: all
 all: | $(BUILDDIR)
-	@hack/build --target=releaser \
+	@TARGET=releaser hack/build \
 		$(DOCKER_BUILD_ARGS)
 
 .PHONY: build

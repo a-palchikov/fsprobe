@@ -18,7 +18,7 @@ limitations under the License.
 
 #include "syscalls.h"
 
-long __attribute__((always_inline)) trace__sys_mkdir(umode_t mode)
+long __attribute__((always_inline)) trace__sys_mkdir(const char __user *pathname, umode_t mode)
 {
     struct syscall_cache_t syscall = {
         .type = EVENT_MKDIR,
@@ -26,8 +26,9 @@ long __attribute__((always_inline)) trace__sys_mkdir(umode_t mode)
             .mode = mode
         }
     };
+
+    bpf_probe_read_str(&syscall.mkdir.pathname, MAX_PATH_LEN, (void*)pathname);
     cache_syscall(&syscall);
-    //bpf_printk("mkdirat_e: cached syscall.");
     return 0;
 }
 
@@ -84,8 +85,6 @@ __attribute__((always_inline)) static int trace_mkdir(struct pt_regs *ctx, struc
     if (!match(data_cache, FILTER_SRC))
         return 0;
 
-    bpf_printk("vfs_mkdir_e: delegating to ret.");
-
     bpf_map_update_elem(&dentry_cache, &key, data_cache, BPF_ANY);
     return 0;
 }
@@ -105,6 +104,15 @@ __attribute__((always_inline)) static int trace_mkdir_ret(struct pt_regs *ctx)
 
     data_cache->fs_event.retval = PT_REGS_RC(ctx);
     data_cache->fs_event.src_inode = get_dentry_ino(data_cache->src_dentry);
+
+#ifdef DEBUG
+    struct basename path = {};
+    get_dentry_name(data_cache->src_dentry, &path, sizeof(path));
+    bpf_printk("mkdir_ret: resolve paths, ino=%ld, mnt_id=%d, name=%s.",
+              data_cache->fs_event.src_inode,
+              data_cache->fs_event.src_mount_id,
+              path.name);
+#endif
     resolve_paths(ctx, data_cache, RESOLVE_SRC | EMIT_EVENT);
 
     bpf_map_delete_elem(&dentry_cache, &key);
@@ -114,8 +122,9 @@ __attribute__((always_inline)) static int trace_mkdir_ret(struct pt_regs *ctx)
 SEC("kprobe/do_mkdirat")
 int kprobe_do_mkdirat(struct pt_regs *ctx)
 {
-    umode_t mode = (umode_t)PT_REGS_PARM2(ctx);
-    return trace__sys_mkdir(mode);
+    const char *pathname = (const char *)PT_REGS_PARM2(ctx);
+    umode_t mode = (umode_t)PT_REGS_PARM3(ctx);
+    return trace__sys_mkdir(pathname, mode);
 }
 
 SEC("kretprobe/do_mkdirat")

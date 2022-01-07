@@ -115,7 +115,6 @@ func NewPathFragmentsResolver(monitor *Monitor) (*PathFragmentsResolver, error) 
 // ResolveInode - Resolves a pathname from the provided mount id and inode
 // Assumes that mountID != 0 && inode != 0
 func (pfr *PathFragmentsResolver) ResolveInode(mountID uint32, inode uint64) (filename string, err error) {
-	// Don't resolve path if pathnameKey isn't valid
 	pfr.key.Set(mountID, inode)
 	keyB := pfr.key.GetKeyBytes()
 	valueB := []byte{}

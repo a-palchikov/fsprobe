@@ -18,17 +18,43 @@ limitations under the License.
 
 #include "syscalls.h"
 
-long __attribute__((always_inline)) trace__sys_rmdir() {
+long __attribute__((always_inline)) trace__sys_rmdir(const char __user *pathname) {
     struct syscall_cache_t syscall = {
         .type = EVENT_RMDIR,
     };
 
+    bpf_probe_read_str(&syscall.mkdir.pathname, MAX_PATH_LEN, (void*)pathname);
     cache_syscall(&syscall);
     return 0;
 }
 
 int __attribute__((always_inline)) rmdir_predicate(u64 type) {
     return type == EVENT_RMDIR || type == EVENT_UNLINK;
+}
+
+long __attribute__((always_inline)) trace__sys_rmdir_ret(struct pt_regs *ctx)
+{
+    // Remove syscall metadata in any case
+    struct syscall_cache_t *syscall = pop_syscall_with(rmdir_predicate);
+    if (!syscall)
+        return 0;
+
+    int ret = PT_REGS_RC(ctx);
+    //bpf_printk("rmdir_x: found syscall value stack: ret=%ld.", ret);
+    if (ret == 0)
+    {
+        // Do not handle success
+        return 0;
+    }
+
+    struct dentry_cache_t value = {};
+    value.fs_event.retval = ret;
+    value.fs_event.event = EVENT_RMDIR;
+    value.fs_event.src_mount_id = syscall->rmdir.file.path_key.mount_id;
+    value.fs_event.src_inode = syscall->rmdir.file.path_key.ino;
+    resolve_paths(ctx, &value, RESOLVE_SRC | EMIT_EVENT);
+
+    return 0;
 }
 
 // trace_rmdir - Traces a file system rmdir event.
@@ -81,7 +107,14 @@ __attribute__((always_inline)) static int trace_rmdir_ret(struct pt_regs *ctx)
 SEC("kprobe/do_rmdir")
 int kprobe_do_rmdir(struct pt_regs *ctx)
 {
-    return trace__sys_rmdir();
+    const char *pathname = (const char *)PT_REGS_PARM2(ctx);
+    return trace__sys_rmdir(pathname);
+}
+
+SEC("kretprobe/do_rmdir")
+int kprobe_do_rmdir_ret(struct pt_regs *ctx)
+{
+    return trace__sys_rmdir_ret(ctx);
 }
 
 SEC("kprobe/vfs_rmdir")

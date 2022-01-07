@@ -18,6 +18,7 @@ struct syscall_cache_t {
             umode_t mode;
             struct dentry *dentry;
             struct file_t file;
+            char pathname[MAX_PATH_LEN];
         } open;
 
         struct {
@@ -25,6 +26,9 @@ struct syscall_cache_t {
             struct dentry *dentry;
             struct path *path;
             struct file_t file;
+            // pathname keeps the original pathname
+            // for failure cases
+            char pathname[MAX_PATH_LEN];
         } mkdir;
 
         struct {
@@ -36,6 +40,7 @@ struct syscall_cache_t {
         struct {
             struct dentry *dentry;
             struct file_t file;
+            char pathname[MAX_PATH_LEN];
         } rmdir;
 
         struct {

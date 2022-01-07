@@ -16,11 +16,15 @@ limitations under the License.
 #ifndef _OPEN_H_
 #define _OPEN_H_
 
-#define BASENAME_FILTER_SIZE 128
+long __attribute__((always_inline)) trace__sys_open(const char __user *pathname) {
+    struct syscall_cache_t syscall = {
+        .type = EVENT_OPEN,
+    };
 
-struct basename_t {
-    char value[BASENAME_FILTER_SIZE];
-};
+    bpf_probe_read_str(&syscall.open.pathname, MAX_PATH_LEN, (void*)pathname);
+    cache_syscall(&syscall);
+    return 0;
+}
 
 void get_dentry_name(struct dentry *dentry, void *buffer, size_t n);
 
@@ -36,14 +40,6 @@ __attribute__((always_inline)) static int trace_path_openat(struct pt_regs *ctx,
         return 0;
     u64 key = fill_process_data(&data_cache->fs_event.process_data);
     data_cache->fs_event.event = EVENT_OPEN;
-
-    // Add inode data
-    //struct dentry *dentry;
-    //bpf_probe_read(&dentry, sizeof(struct dentry *), &path->dentry);
-    //data_cache->fs_event.src_inode = get_dentry_ino(dentry);
-    //// Mount ID
-    //data_cache->fs_event.src_mount_id = get_path_mount_id(path);
-
     data_cache->path = path;
 
     // Fall-through to kretprobe as we can only filter
@@ -67,6 +63,10 @@ __attribute__((always_inline)) static int trace_path_openat_ret(struct pt_regs *
         return 0;
     }
 
+    struct syscall_cache_t *syscall = pop_syscall(EVENT_OPEN);
+    if (!syscall)
+        return 0;
+
     u64 key = bpf_get_current_pid_tgid();
     struct dentry_open_cache_t *data_cache = bpf_map_lookup_elem(&dentry_open_cache, &key);
     if (!data_cache)
@@ -84,13 +84,16 @@ __attribute__((always_inline)) static int trace_path_openat_ret(struct pt_regs *
         return 0;
 
 #ifdef DEBUG
-    bpf_printk("path_openat_x: match, resolve paths, ino=%ld, mnt_id=%ld.",
+    dev_t dev = get_dentry_dev(dentry);
+    bpf_printk("path_openat_x: match, resolve paths, ino=%ld, mnt_id=%ld, dev=%d.",
                value.fs_event.src_inode,
-               value.fs_event.src_mount_id);
+               value.fs_event.src_mount_id,
+               dev);
 #endif
 
     // Resolve paths
     // TODO(dima): add input filename from the corresponding syscall
+    // TODO(dima): send the syscall->open.pathname to user space as well
     resolve_paths(ctx, &value, RESOLVE_SRC | EMIT_EVENT);
     bpf_map_delete_elem(&dentry_open_cache, &key);
     return 0;
@@ -125,6 +128,10 @@ __attribute__((always_inline)) static int trace_open(struct pt_regs *ctx, struct
 // @ctx: registers context
 __attribute__((always_inline)) static int trace_open_ret(struct pt_regs *ctx)
 {
+    struct syscall_cache_t *syscall = pop_syscall(EVENT_OPEN);
+    if (!syscall)
+        return 0;
+
     u64 key = bpf_get_current_pid_tgid();
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache, &key);
     if (!data_cache)
@@ -135,6 +142,19 @@ __attribute__((always_inline)) static int trace_open_ret(struct pt_regs *ctx)
     bpf_map_delete_elem(&dentry_cache, &key);
     return 0;
 }
+
+SEC("kprobe/do_sys_open")
+int kprobe_do_sys_open(struct pt_regs *ctx)
+{
+    const char *pathname = (const char *)PT_REGS_PARM2(ctx);
+    return trace__sys_open(pathname);
+}
+
+//SEC("kretprobe/do_sys_open")
+//int kprobe_do_sys_open_ret(struct pt_regs *ctx)
+//{
+//    return trace__sys_open_ret(ctx);
+//}
 
 SEC("kprobe/path_openat")
 int kprobe_path_openat(struct pt_regs *ctx)

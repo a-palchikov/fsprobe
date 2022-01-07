@@ -139,23 +139,12 @@ var (
 					Enabled:     false,
 					Type:        ebpf.Kprobe,
 				},
-				//{
-				//	Name:        "sys_mkdir",
-				//	SectionName: "kprobe/__x64_sys_mkdir",
-				//	Enabled:     false,
-				//	Type:        ebpf.Kprobe,
-				//},
-				//{
-				//	Name:        "sys_exit_mkdir",
-				//	SectionName: "tracepoint/syscall__sys_exit_mkdir",
-				//	Enabled:     false,
-				//	Type:        ebpf.TracePoint,
-				//},
 				{
 					Name:        "do_mkdirat",
 					SectionName: "kprobe/do_mkdirat",
 					Enabled:     false,
 					Type:        ebpf.Kprobe,
+					DependsOn:   append([]*model.Probe{mntWantWriteProbe}, filenameCreateProbes...),
 				},
 				{
 					Name:        "do_mkdirat_ret",
@@ -166,12 +155,6 @@ var (
 						model.InodeFilteringModeConst,
 					},
 				},
-				//{
-				//	Name:        "sys_exit_mkdir",
-				//	SectionName: "tracepoint/syscall__sys_exit_mkdir",
-				//	Enabled:     false,
-				//	Type:        ebpf.TracePoint,
-				//},
 			},
 			model.Unlink: {
 				{
@@ -207,6 +190,22 @@ var (
 					SectionName: "kretprobe/vfs_rmdir",
 					Enabled:     false,
 					Type:        ebpf.Kprobe,
+				},
+				{
+					Name:        "do_rmdir",
+					SectionName: "kprobe/do_rmdir",
+					Enabled:     false,
+					Type:        ebpf.Kprobe,
+					DependsOn:   append([]*model.Probe{mntWantWriteProbe}, filenameCreateProbes...),
+				},
+				{
+					Name:        "do_rmdir_ret",
+					SectionName: "kretprobe/do_rmdir",
+					Enabled:     false,
+					Type:        ebpf.Kprobe,
+					Constants: []string{
+						model.InodeFilteringModeConst,
+					},
 				},
 			},
 			model.Link: {
@@ -332,7 +331,9 @@ type FSEventHandler struct {
 
 type openFlag = model.OpenFlag
 
-// HandleFSEvent - Handles a file system event
+// HandleFSEvent - Handles a file system event.
+// TODO(dima): clean up cached entries for the pathnames
+// that were never created for failed events.
 func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 	// Take cleanup actions on the cache
 	logger := logrus.WithFields(logrus.Fields{
@@ -347,7 +348,7 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 	switch event.EventType {
 	case model.Open:
 		matched = r.matches(int(event.SrcMountID), event.SrcFilename)
-		if matched && openFlag(event.Flags)&model.O_CREAT != 0 {
+		if matched && event.IsSuccess() && openFlag(event.Flags)&model.O_CREAT != 0 {
 			err := r.maybeAddInodeFilter(monitor,
 				uint32(event.SrcInode),
 				event.SrcFilename,
@@ -358,7 +359,7 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 		}
 	case model.Mkdir:
 		matched = r.matches(int(event.SrcMountID), event.SrcFilename)
-		if matched {
+		if matched && event.IsSuccess() {
 			err := r.maybeAddInodeFilter(monitor,
 				uint32(event.SrcInode),
 				event.SrcFilename,
@@ -371,7 +372,7 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 		matchedSrc := r.matches(int(event.SrcMountID), event.SrcFilename)
 		matchedTarget := r.matches(int(event.TargetMountID), event.TargetFilename)
 		matched = matchedSrc || matchedTarget
-		if matchedTarget {
+		if matchedTarget && event.IsSuccess() {
 			err := r.maybeAddInodeFilter(monitor,
 				uint32(event.TargetInode),
 				event.TargetFilename,
@@ -380,12 +381,12 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 				logger.WithError(err).Warn("Failed to add inode filter.")
 			}
 		}
-		if err := removeCacheEntry(event, monitor); err != nil {
+		if err := removeSrcCacheEntry(event, monitor); err != nil {
 			logrus.WithError(err).Warn("Failed to remove entry from cache.")
 		}
 	case model.Unlink, model.Rmdir:
 		matched = r.matches(int(event.SrcMountID), event.SrcFilename)
-		if err := removeCacheEntry(event, monitor); err != nil {
+		if err := removeSrcCacheEntry(event, monitor); err != nil {
 			logrus.WithError(err).Warn("Failed to remove entry from cache.")
 		}
 	default:
@@ -415,7 +416,7 @@ func (r *FSEventHandler) maybeAddInodeFilter(monitor *model.Monitor, inode uint3
 	return err
 }
 
-func removeCacheEntry(event *model.FSEvent, m *model.Monitor) error {
+func removeSrcCacheEntry(event *model.FSEvent, m *model.Monitor) error {
 	return m.DentryResolver.RemoveInode(event.SrcMountID, event.SrcInode)
 }
 

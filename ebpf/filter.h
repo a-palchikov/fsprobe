@@ -19,27 +19,6 @@ limitations under the License.
 #define FILTER_SRC     1 << 1
 #define FILTER_TARGET  1 << 2
 
-enum policy_flags
-{
-    BASENAME = 1,
-    FLAGS = 2,
-    MODE = 4,
-    PARENT_NAME = 8,
-};
-
-struct policy_t {
-    char flags;
-};
-
-//struct bpf_map_def SEC("maps/filter_policy") filter_policy = {
-//    .type = BPF_MAP_TYPE_ARRAY,
-//    .key_size = sizeof(u32),
-//    .value_size = sizeof(struct policy_t),
-//    .max_entries = EVENT_MAX,
-//    .pinning = 0,
-//    .namespace = "",
-//};
-
 // Returns 1 if there is a match for the given source (or its parent) inode.
 // Returns 0 if no match found
 __attribute__((always_inline)) static int match_src(struct dentry_cache_t *data_cache)

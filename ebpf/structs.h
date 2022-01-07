@@ -54,6 +54,9 @@ struct dentry_cache_t
     struct dentry *src_dentry;
     struct inode *target_dir;
     struct dentry *target_dentry;
+    // pathname optionally specifies the pathname
+    // in case of failure
+    char *pathname;
     u32 cursor;
 };
 
@@ -140,6 +143,12 @@ struct bpf_map_def SEC("maps/inodes_filter") inodes_filter = {
     .max_entries = 120000,
     .pinning = PIN_NONE,
     .namespace = "",
+};
+
+#define MAX_PATH_LEN 128
+
+struct basename {
+    char name[MAX_PATH_LEN];
 };
 
 #endif

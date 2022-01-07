@@ -587,4 +587,18 @@ struct bpf_map_def SEC("maps/enabled_events") enabled_events = {
 //    return offset ? offset : 40; // offsetof(struct renamedata, new_dentry)
 //}
 
+#define DEVPTS_SUPER_MAGIC  0x1cd1
+#define PROC_SUPER_MAGIC    0x9fa0
+#define SYSFS_MAGIC         0x62656572
+#define BPF_FS_MAGIC        0xcafe4a11
+#define DEBUGFS_MAGIC       0x64626720
+#define SECURITYFS_MAGIC    0x73636673
+#define SELINUX_MAGIC       0xf97cff8c
+#define TMPFS_MAGIC         0x01021994
+#define CGROUP_SUPER_MAGIC  0x27e0eb
+#define CGROUP2_SUPER_MAGIC 0x63677270
+#define TRACEFS_MAGIC       0x74726163
+
+#define EXT4_SUPER_MAGIC    0xef53
+
 #endif

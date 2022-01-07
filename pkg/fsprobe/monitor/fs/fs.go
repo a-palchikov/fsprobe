@@ -62,6 +62,7 @@ var (
 		InodeFilterSection: model.InodesFilterMap,
 		ResolutionModeMaps: []string{
 			model.PathFragmentsMap,
+			model.PathFragmentBuilderMap,
 			model.FSEventsMap,
 			model.DentryCacheMap,
 			model.DentryCacheBuilderMap,
@@ -97,6 +98,12 @@ var (
 					Constants: []string{
 						model.InodeFilteringModeConst,
 					},
+				},
+				{
+					Name:        "sys_open",
+					SectionName: "kprobe/do_sys_open",
+					Enabled:     false,
+					Type:        ebpf.Kprobe,
 				},
 				{
 					Name:        "open_ret",
@@ -340,6 +347,7 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 		"path":   event.SrcFilename,
 		"type":   event.EventType,
 		"mnt_id": event.SrcMountID,
+		"ino":    event.SrcInode,
 		"comm":   event.Comm,
 		"ret":    event.Retval,
 	})
@@ -389,6 +397,7 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 		if err := removeSrcCacheEntry(event, monitor); err != nil {
 			logrus.WithError(err).Warn("Failed to remove entry from cache.")
 		}
+	case model.SetAttr:
 	default:
 		logger.Warn("Unhandled event type.")
 	}
@@ -463,11 +472,11 @@ func (r *resolvedPath) matches(mountID int, path string) bool {
 	if r.mi.MountID != mountID {
 		return false
 	}
-	if r.path == path {
+	dir := filepath.Dir(path)
+	if r.path == path || r.path == dir {
 		return true
 	}
-	dir := filepath.Dir(path)
-	if strings.HasPrefix(r.path, dir) {
+	if strings.HasPrefix(r.path, dir+string(filepath.Separator)) {
 		return true
 	}
 	return false

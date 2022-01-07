@@ -40,20 +40,30 @@ long __attribute__((always_inline)) trace__sys_mkdir_ret(struct pt_regs *ctx)
         return 0;
 
     int ret = PT_REGS_RC(ctx);
-    //bpf_printk("mkdirat_x: found syscall value stack: ret=%ld.", ret);
     if (ret == 0)
     {
         // Do not handle success
         return 0;
     }
 
-    struct dentry_cache_t value = {};
-    value.fs_event.retval = ret;
-    value.fs_event.event = EVENT_MKDIR;
-    value.fs_event.mode = syscall->mkdir.mode;
-    value.fs_event.src_mount_id = syscall->mkdir.file.path_key.mount_id;
-    value.fs_event.src_inode = syscall->mkdir.file.path_key.ino;
-    resolve_paths(ctx, &value, RESOLVE_SRC | EMIT_EVENT);
+    u32 cpu = bpf_get_smp_processor_id();
+    struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache_builder, &cpu);
+    if (!data_cache)
+        return 0;
+
+    fill_process_data(&data_cache->fs_event.process_data);
+    data_cache->fs_event.retval = ret;
+    data_cache->fs_event.event = EVENT_MKDIR;
+    data_cache->fs_event.mode = syscall->mkdir.mode;
+    data_cache->fs_event.src_mount_id = syscall->mkdir.file.path_key.mount_id;
+    data_cache->fs_event.src_inode = syscall->mkdir.file.path_key.ino;
+
+    if (!match(data_cache, FILTER_SRC))
+        return 0;
+
+    //data_cache->pathname = &syscall->mkdir.pathname[0];
+    data_cache->pathname = syscall->mkdir.pathname;
+    resolve_paths(ctx, data_cache, RESOLVE_SRC | EMIT_EVENT);
 
     return 0;
 }

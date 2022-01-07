@@ -31,8 +31,9 @@ import (
 
 // PathFragmentsKey - Key of a dentry cache hashmap
 type PathFragmentsKey struct {
-	inode   uint64
-	mountID uint32
+	inode     uint64
+	mountID   uint32
+	__padding uint32
 }
 
 func (pfk *PathFragmentsKey) Set(mountID uint32, inode uint64) {
@@ -66,12 +67,11 @@ func (pfk *PathFragmentsKey) HasEmptyInode() bool {
 	return pfk.inode == 0
 }
 
-func (pfk *PathFragmentsKey) String() string {
-	return fmt.Sprintf("%x/%x", pfk.mountID, pfk.inode)
+func (pfk PathFragmentsKey) String() string {
+	return fmt.Sprintf("%d/%d", pfk.mountID, pfk.inode)
 }
 
 type PathFragmentsValue struct {
-	parent   PathFragmentsKey
 	Fragment [PathFragmentsSize]byte
 }
 
@@ -115,6 +115,10 @@ func NewPathFragmentsResolver(monitor *Monitor) (*PathFragmentsResolver, error) 
 // ResolveInode - Resolves a pathname from the provided mount id and inode
 // Assumes that mountID != 0 && inode != 0
 func (pfr *PathFragmentsResolver) ResolveInode(mountID uint32, inode uint64) (filename string, err error) {
+	//logrus.WithFields(logrus.Fields{
+	//	"mnt_id": mountID,
+	//	"ino":    inode,
+	//}).Debug("ResolveInode.")
 	pfr.key.Set(mountID, inode)
 	keyB := pfr.key.GetKeyBytes()
 	valueB := []byte{}
@@ -125,13 +129,18 @@ func (pfr *PathFragmentsResolver) ResolveInode(mountID uint32, inode uint64) (fi
 			filename = "*ERROR*" + filename
 			break
 		}
-		// Read next key from valueB
+		// Read next key from valueB (parent key)
 		read := pfr.key.Read(valueB)
 		// Read current fragment from valueB
 		if err = pfr.value.Read(valueB[read:]); err != nil {
 			err = errors.Wrap(err, "failed to decode fragment")
 			break
 		}
+		//logger := logrus.WithFields(logrus.Fields{
+		//	"mnt_id": pfr.key.mountID,
+		//	"ino":    pfr.key.inode,
+		//})
+		//logger.Debug("Decoded fragment value.")
 
 		// Don't append dentry name if this is the root dentry (i.e. name == '/')
 		if !pfr.value.IsRoot() {
@@ -139,8 +148,14 @@ func (pfr *PathFragmentsResolver) ResolveInode(mountID uint32, inode uint64) (fi
 		}
 
 		if pfr.key.HasEmptyInode() {
+			//logger.Debug("Value has empty inode, bail.")
 			break
 		}
+
+		//logger.Debug("Move to next key.")
+		//pfr.key.Set(pfr.value.parent.mountID, pfr.value.parent.inode)
+		//keyB = pfr.key.GetKeyBytes()
+		//pfr.key.Write(keyB)
 
 		// Prepare next key
 		pfr.key.Write(keyB)
@@ -158,7 +173,7 @@ func (pfr *PathFragmentsResolver) RemoveInode(mountID uint32, inode uint64) erro
 	// Don't resolve path if pathnameKey isn't valid
 	pfr.key.Set(mountID, inode)
 	if pfr.key.IsNull() {
-		return fmt.Errorf("invalid inode/dev couple: %s", pfr.key.String())
+		return fmt.Errorf("invalid inode/mountID tuple: %s", pfr.key.String())
 	}
 	keyB := pfr.key.GetKeyBytes()
 	// Delete entry

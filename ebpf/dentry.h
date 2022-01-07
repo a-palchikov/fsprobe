@@ -259,17 +259,26 @@ __attribute__((always_inline)) static int resolve_dentry_fragments(struct dentry
     return DENTRY_MAX_DEPTH;
 }
 
-__attribute__((always_inline)) static void embed_pathname(struct path_key_t base_key, struct dentry_cache_t *cache) {
+__attribute__((always_inline)) static void embed_pathname(struct path_key_t *base_key, struct dentry_cache_t *cache) {
     struct path_key_t key = {};
     // Generate random key for pathname
     key.ino = bpf_get_prandom_u32();
-    key.mount_id = bpf_get_prandom_u32();
-    struct path_fragment_t value = {};
-    value.parent = base_key;
+    key.mount_id = base_key->mount_id;
+
+    //struct path_fragment_t *value = NULL;
+    u32 cpu = bpf_get_smp_processor_id();
+    struct path_fragment_t *value = bpf_map_lookup_elem(&path_fragment_builder, &cpu);
+    if (!value)
+        return;
+
+    value->parent = *base_key;
     // Invalidate the fragment for the pathname as it is supposed to be unique
     bpf_map_delete_elem(&path_fragments, &key);
-    bpf_probe_read_str(&value.name, MAX_PATH_LEN, (void *)&cache->pathname);
-    bpf_map_update_elem(&path_fragments, &key, &value, BPF_ANY);
+    bpf_probe_read_str(&value->name, sizeof(value->name), (void *)cache->pathname);
+    //bpf_printk("embed_path: parent=ino:%ld/mnt_id=%d (%ld/%d).",
+    //           value->parent.ino, value->parent.mount_id,
+    //           key.ino, key.mount_id);
+    bpf_map_update_elem(&path_fragments, &key, value, BPF_ANY);
     // Override the path key for pathname
     cache->fs_event.src_inode=key.ino;
     cache->fs_event.src_mount_id=key.mount_id;
@@ -291,7 +300,7 @@ __attribute__((always_inline)) static int resolve_paths(struct pt_regs *ctx, str
         }
         key.mount_id = cache->fs_event.src_mount_id;
         if (cache->pathname) {
-            embed_pathname(key, cache);
+            embed_pathname(&key, cache);
         }
         resolve_dentry_fragments(cache->src_dentry, &key);
     }
@@ -303,7 +312,7 @@ __attribute__((always_inline)) static int resolve_paths(struct pt_regs *ctx, str
             bpf_map_delete_elem(&path_fragments, &key);
         }
         if (cache->pathname) {
-            embed_pathname(key, cache);
+            embed_pathname(&key, cache);
         }
         resolve_dentry_fragments(cache->target_dentry, &key);
     }

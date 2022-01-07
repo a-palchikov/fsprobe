@@ -157,7 +157,8 @@ func resolvePaths(data []byte, evt *FSEvent, monitor *Monitor, read int) (err er
 	if evt.EventType == Link {
 		// Remove cache entry for link events
 		_ = monitor.DentryResolver.RemoveInode(evt.TargetMountID, evt.TargetInode)
-		_ = monitor.DentryResolver.RemoveInode(evt.TargetMountID, evt.TargetInode)
+		// TODO(dima): why double delete?
+		//_ = monitor.DentryResolver.RemoveInode(evt.TargetMountID, evt.TargetInode)
 	}
 	return nil
 }

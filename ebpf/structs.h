@@ -50,21 +50,15 @@ struct bpf_map_def SEC("maps/fs_events") fs_events = {
 struct dentry_cache_t
 {
     struct fs_event_t fs_event;
+    struct path *path;
     struct inode *src_dir;
     struct dentry *src_dentry;
     struct inode *target_dir;
     struct dentry *target_dentry;
     // pathname optionally specifies the pathname
     // in case of failure
-    char *pathname;
+    const char *pathname;
     u32 cursor;
-};
-
-// dentry_open_cache_t - Dentry cache structure used to cache context between kprobes entry and return
-struct dentry_open_cache_t
-{
-    struct fs_event_t fs_event;
-    struct path *path;
 };
 
 // dentry_cache - Dentry cache map used to store dentry cache structures between 2 eBPF programs
@@ -91,7 +85,7 @@ struct bpf_map_def SEC("maps/dentry_cache_builder") dentry_cache_builder = {
 struct bpf_map_def SEC("maps/dentry_open_cache") dentry_open_cache = {
     .type = BPF_MAP_TYPE_LRU_HASH,
     .key_size = sizeof(u64),
-    .value_size = sizeof(struct dentry_open_cache_t),
+    .value_size = sizeof(struct dentry_cache_t),
     .max_entries = 1000,
     .pinning = PIN_NONE,
     .namespace = "",
@@ -102,7 +96,7 @@ struct bpf_map_def SEC("maps/dentry_open_cache") dentry_open_cache = {
 struct bpf_map_def SEC("maps/dentry_open_cache_builder") dentry_open_cache_builder = {
     .type = BPF_MAP_TYPE_ARRAY,
     .key_size = sizeof(u32),
-    .value_size = sizeof(struct dentry_open_cache_t),
+    .value_size = sizeof(struct dentry_cache_t),
     .max_entries = 16,
     .pinning = PIN_NONE,
     .namespace = "",
@@ -121,6 +115,15 @@ struct bpf_map_def SEC("maps/path_fragments") path_fragments = {
     .key_size = sizeof(struct path_key_t),
     .value_size = sizeof(struct path_fragment_t),
     .max_entries = 10000,
+    .pinning = PIN_NONE,
+    .namespace = "",
+};
+
+struct bpf_map_def SEC("maps/path_fragment_builder") path_fragment_builder = {
+    .type = BPF_MAP_TYPE_ARRAY,
+    .key_size = sizeof(u32),
+    .value_size = sizeof(struct path_fragment_t),
+    .max_entries = 16,
     .pinning = PIN_NONE,
     .namespace = "",
 };

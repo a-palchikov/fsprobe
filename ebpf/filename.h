@@ -28,14 +28,14 @@ int kprobe_filename_create_ret(struct pt_regs *ctx) {
     if (!syscall)
         return 0;
 
-    int ret = PT_REGS_RC(ctx);
+    //int ret = PT_REGS_RC(ctx);
     switch (syscall->type) {
         case EVENT_MKDIR:
-            bpf_printk("filename_create_x: mkdir, ret=%d.", ret);
+            //bpf_printk("filename_create_x: mkdir, ret=%d.", ret);
             break;
 
        case EVENT_LINK:
-            bpf_printk("filename_create_x: link, ret=%d.", ret);
+            //bpf_printk("filename_create_x: link, ret=%d.", ret);
             break;
     }
     return 0;
@@ -69,6 +69,11 @@ int kprobe_link_path_walk(struct pt_regs *ctx) {
                 struct path *base_path = (struct path *)PT_REGS_PARM2(ctx);
                 syscall->rmdir.file.path_key.mount_id = get_path_mount_id(base_path);
                 syscall->rmdir.file.path_key.ino = get_path_dentry_ino(base_path);
+#ifdef DEBUG
+                bpf_printk("link_path_walk_e: rmdir, mnt_id=%ld, ino=%ld.",
+                           syscall->rmdir.file.path_key.mount_id,
+                           syscall->rmdir.file.path_key.ino);
+#endif
             }
             break;
     }

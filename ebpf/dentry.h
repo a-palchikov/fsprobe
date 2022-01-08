@@ -223,14 +223,17 @@ __attribute__((always_inline)) static int resolve_dentry_fragments(struct dentry
     {
         bpf_probe_read(&qstr, sizeof(qstr), &dentry->d_name);
         bpf_probe_read_str(&map_value.name, sizeof(map_value.name), (void*) qstr.name);
+        //bpf_printk("resolve_paths: name=%s.", map_value.name);
         bpf_probe_read(&d_parent, sizeof(d_parent), &dentry->d_parent);
         *key = next_key;
         if (dentry == d_parent) {
+            //bpf_printk("resolve_paths: dentry==parent, bail.");
             next_key.ino = 0;
         } else {
             write_dentry_inode(d_parent, &inode_tmp);
             write_inode_ino(inode_tmp, &next_key.ino);
         }
+        //bpf_printk("resolve_paths: parent.ino=%ld.", next_key.ino);
         if (map_value.name[0] == '/' || map_value.name[0] == 0) {
             next_key.ino = 0;
         }
@@ -242,7 +245,6 @@ __attribute__((always_inline)) static int resolve_dentry_fragments(struct dentry
         } else {
             return i + 1;
         }
-        //bpf_map_update_elem(&path_fragments, key, &map_value, BPF_ANY);
 
         dentry = d_parent;
         if (next_key.ino == 0)
@@ -290,7 +292,7 @@ __attribute__((always_inline)) static void embed_pathname(struct path_key_t *bas
 // @cache: pointer to the dentry_cache_t structure that contains the source and target dentry to resolve
 // @fs_event: pointer to an fs_event structure on the stack of the eBPF program that will be used to send the perf event
 // flag: defines what dentry should be resolved.
-__attribute__((always_inline)) static int resolve_paths(struct pt_regs *ctx, struct dentry_cache_t *cache, u8 flag) {
+__attribute__((always_inline)) static int resolve_paths(void *ctx, struct dentry_cache_t *cache, u8 flag) {
     struct path_key_t key = {};
     if ((flag & RESOLVE_SRC) == RESOLVE_SRC) {
         if (cache->fs_event.event == EVENT_RENAME || cache->fs_event.event == EVENT_LINK) {

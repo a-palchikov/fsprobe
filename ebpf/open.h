@@ -16,9 +16,12 @@ limitations under the License.
 #ifndef _OPEN_H_
 #define _OPEN_H_
 
-long __attribute__((always_inline)) trace__sys_open(const char __user *pathname) {
+long __attribute__((always_inline)) trace__sys_open(const char __user *pathname, int flags) {
     struct syscall_cache_t syscall = {
         .type = EVENT_OPEN,
+        .open = {
+            .flags = flags,
+        }
     };
 
     bpf_probe_read_str(&syscall.open.pathname, MAX_PATH_LEN, (void*)pathname);
@@ -56,6 +59,10 @@ __attribute__((always_inline)) static int trace_path_openat(struct pt_regs *ctx,
 // @ctx: registers context
 __attribute__((always_inline)) static int trace_path_openat_ret(struct pt_regs *ctx)
 {
+    struct syscall_cache_t *syscall = pop_syscall(EVENT_OPEN);
+    if (!syscall)
+        return 0;
+
     struct file *file = (struct file *)PT_REGS_RC(ctx);
     if (!IS_ERR(file))
     {
@@ -67,16 +74,18 @@ __attribute__((always_inline)) static int trace_path_openat_ret(struct pt_regs *
     u64 key = bpf_get_current_pid_tgid();
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_open_cache, &key);
     if (!data_cache)
-    {
-        //bpf_printk("path_openat_x: no cached value on stack.");
         return 0;
-    }
 
+    data_cache->fs_event.flags = syscall->open.flags;
     data_cache->fs_event.retval = PTR_ERR(file);
-    struct dentry *dentry;
-    bpf_probe_read(&dentry, sizeof(dentry), &data_cache->path->dentry);
-    data_cache->fs_event.src_inode = get_dentry_ino(dentry);
-    data_cache->fs_event.src_mount_id = get_path_mount_id(data_cache->path);
+    data_cache->fs_event.src_inode = syscall->open.file.path_key.ino;
+    data_cache->fs_event.src_mount_id = syscall->open.file.path_key.mount_id;
+    // It seems that at least with EACCES, the path cached
+    // upon entry into path_openat is not initialized enough
+    // to read anything beyond inode (e.g. no dentry name and
+    // no backward links have been set up) so path resolution
+    // is incomplete
+    data_cache->pathname = syscall->open.pathname;
 
     if (!match(data_cache, FILTER_SRC))
         return 0;
@@ -88,15 +97,6 @@ __attribute__((always_inline)) static int trace_path_openat_ret(struct pt_regs *
                PTR_ERR(file));
 #endif
 
-    struct syscall_cache_t *syscall = pop_syscall(EVENT_OPEN);
-    if (!syscall)
-    {
-        //bpf_printk("path_openat_x: no syscall on stack.");
-        return 0;
-    }
-
-    // Resolve paths
-    data_cache->pathname = syscall->open.pathname;
     resolve_paths(ctx, data_cache, RESOLVE_SRC | EMIT_EVENT);
     bpf_map_delete_elem(&dentry_open_cache, &key);
     return 0;
@@ -143,6 +143,7 @@ __attribute__((always_inline)) static int trace_open_ret(struct pt_regs *ctx)
     if (!data_cache)
         return 0;
 
+    data_cache->fs_event.flags = syscall->open.flags;
     data_cache->fs_event.retval = PT_REGS_RC(ctx);
 #ifdef DEBUG
     bpf_printk("vfs_open_x: resolve paths, ino=%ld, mnt_id=%d, ret=%d.",
@@ -160,14 +161,9 @@ SEC("kprobe/do_sys_open")
 int kprobe_do_sys_open(struct pt_regs *ctx)
 {
     const char *pathname = (const char *)PT_REGS_PARM2(ctx);
-    return trace__sys_open(pathname);
+    int flags = (int)PT_REGS_PARM3(ctx);
+    return trace__sys_open(pathname, flags);
 }
-
-//SEC("kretprobe/do_sys_open")
-//int kprobe_do_sys_open_ret(struct pt_regs *ctx)
-//{
-//    return trace__sys_open_ret(ctx);
-//}
 
 SEC("kprobe/path_openat")
 int kprobe_path_openat(struct pt_regs *ctx)

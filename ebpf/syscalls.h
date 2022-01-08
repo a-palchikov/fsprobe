@@ -35,6 +35,7 @@ struct syscall_cache_t {
             struct dentry *dentry;
             struct file_t file;
             int flags;
+            char pathname[MAX_PATH_LEN];
         } unlink;
 
         struct {

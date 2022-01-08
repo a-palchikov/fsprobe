@@ -8,7 +8,7 @@ import (
 func (m *Monitor) Start() error {
 	// start probes
 	// depends maps probe name -> probe
-	// TODO(dima): revisit this to hide the complexity of dealinh with dependent probes
+	// TODO(dima): revisit this to hide the complexity of dealing with dependent probes
 	depends := make(map[string]*Probe)
 	for _, probes := range m.Probes {
 		for _, p := range probes {

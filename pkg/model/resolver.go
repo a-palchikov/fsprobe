@@ -20,10 +20,12 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io/ioutil"
 	"path/filepath"
 	"unsafe"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 
 	"github.com/Gui774ume/ebpf"
 	"github.com/Gui774ume/fsprobe/pkg/utils"
@@ -115,10 +117,13 @@ func NewPathFragmentsResolver(monitor *Monitor) (*PathFragmentsResolver, error) 
 // ResolveInode - Resolves a pathname from the provided mount id and inode
 // Assumes that mountID != 0 && inode != 0
 func (pfr *PathFragmentsResolver) ResolveInode(mountID uint32, inode uint64) (filename string, err error) {
-	//logrus.WithFields(logrus.Fields{
-	//	"mnt_id": mountID,
-	//	"ino":    inode,
-	//}).Debug("ResolveInode.")
+	log := logrus.New()
+	log.SetOutput(ioutil.Discard)
+	logger := log.WithFields(logrus.Fields{
+		"mnt_id": mountID,
+		"ino":    inode,
+	})
+	logger.Debug("ResolveInode.")
 	pfr.key.Set(mountID, inode)
 	keyB := pfr.key.GetKeyBytes()
 	valueB := []byte{}
@@ -136,11 +141,11 @@ func (pfr *PathFragmentsResolver) ResolveInode(mountID uint32, inode uint64) (fi
 			err = errors.Wrap(err, "failed to decode fragment")
 			break
 		}
-		//logger := logrus.WithFields(logrus.Fields{
-		//	"mnt_id": pfr.key.mountID,
-		//	"ino":    pfr.key.inode,
-		//})
-		//logger.Debug("Decoded fragment value.")
+		logger := log.WithFields(logrus.Fields{
+			"mnt_id": pfr.key.mountID,
+			"ino":    pfr.key.inode,
+		})
+		logger.Debug("Decoded fragment value.")
 
 		// Don't append dentry name if this is the root dentry (i.e. name == '/')
 		if !pfr.value.IsRoot() {
@@ -148,15 +153,11 @@ func (pfr *PathFragmentsResolver) ResolveInode(mountID uint32, inode uint64) (fi
 		}
 
 		if pfr.key.HasEmptyInode() {
-			//logger.Debug("Value has empty inode, bail.")
+			logger.Debug("Value has empty inode, bail.")
 			break
 		}
 
-		//logger.Debug("Move to next key.")
-		//pfr.key.Set(pfr.value.parent.mountID, pfr.value.parent.inode)
-		//keyB = pfr.key.GetKeyBytes()
-		//pfr.key.Write(keyB)
-
+		logger.Debug("Move to next key.")
 		// Prepare next key
 		pfr.key.Write(keyB)
 	}

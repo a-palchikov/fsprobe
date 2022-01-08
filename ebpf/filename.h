@@ -76,6 +76,34 @@ int kprobe_link_path_walk(struct pt_regs *ctx) {
 #endif
             }
             break;
+        case EVENT_UNLINK:
+            {
+                // nameidata.path
+                struct path *base_path = (struct path *)PT_REGS_PARM2(ctx);
+                syscall->unlink.file.path_key.mount_id = get_path_mount_id(base_path);
+                syscall->unlink.file.path_key.ino = get_path_dentry_ino(base_path);
+#ifdef DEBUG
+                bpf_printk("link_path_walk_e: unlink, base dir mnt_id=%ld/ino=%ld.",
+                           syscall->unlink.file.path_key.mount_id,
+                           syscall->unlink.file.path_key.ino);
+#endif
+            }
+            break;
+        case EVENT_OPEN:
+            {
+                // nameidata.path
+                struct path *base_path = (struct path *)PT_REGS_PARM2(ctx);
+                syscall->open.file.path_key.mount_id = get_path_mount_id(base_path);
+                syscall->open.file.path_key.ino = get_path_dentry_ino(base_path);
+#ifdef DEBUG
+                if (syscall->open.file.path_key.mount_id == 253) {
+                    bpf_printk("link_path_walk_e: open, base dir mnt_id=%ld/ino=%ld.",
+                               syscall->open.file.path_key.mount_id,
+                               syscall->open.file.path_key.ino);
+                    }
+#endif
+            }
+            break;
     }
     return 0;
 }

@@ -19,7 +19,21 @@ limitations under the License.
 // mount_id is set by the mnt_want_write prior
 // to entry into vfs_unlink
 
-int __attribute__((always_inline)) trace__sys_unlink(int flags) {
+struct unlinkat_args {
+    u64 __unused__;
+	int id;
+	int dfd;
+	const char * pathname;
+	int flag;
+};
+
+struct unlinkat_ret_args {
+    u64 __unused__;
+	int id;
+	int ret;
+};
+
+int __attribute__((always_inline)) trace__sys_unlink(int flags, const char __user *pathname) {
     struct syscall_cache_t syscall = {
         .type = EVENT_UNLINK,
         .unlink = {
@@ -27,7 +41,44 @@ int __attribute__((always_inline)) trace__sys_unlink(int flags) {
         }
     };
 
+    bpf_probe_read_str(&syscall.unlink.pathname, MAX_PATH_LEN, (void*)pathname);
     cache_syscall(&syscall);
+    return 0;
+}
+
+long __attribute__((always_inline)) trace__sys_unlink_ret(struct unlinkat_ret_args *args)
+{
+    // Remove syscall metadata in any case
+    struct syscall_cache_t *syscall = pop_syscall(EVENT_UNLINK);
+    if (!syscall)
+        return 0;
+
+    int ret;
+    bpf_probe_read(&ret, sizeof(ret), &args->ret);
+    if (ret == 0)
+    {
+        // Do not handle success
+        return 0;
+    }
+
+    u32 cpu = bpf_get_smp_processor_id();
+    struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache_builder, &cpu);
+    if (!data_cache)
+        return 0;
+
+    fill_process_data(&data_cache->fs_event.process_data);
+    data_cache->fs_event.retval = ret;
+    data_cache->fs_event.event = EVENT_UNLINK;
+    // Store the base directory path key
+    data_cache->fs_event.src_mount_id = syscall->unlink.file.path_key.mount_id;
+    data_cache->fs_event.src_inode = syscall->unlink.file.path_key.ino;
+
+    if (!match(data_cache, FILTER_SRC))
+        return 0;
+
+    data_cache->pathname = syscall->unlink.pathname;
+    resolve_paths(args, data_cache, RESOLVE_SRC | EMIT_EVENT);
+
     return 0;
 }
 
@@ -45,6 +96,7 @@ __attribute__((always_inline)) static int trace_unlink(struct pt_regs *ctx, stru
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache_builder, &cpu);
     if (!data_cache)
         return 0;
+
     reset_cache_entry(data_cache);
     u64 key = fill_process_data(&data_cache->fs_event.process_data);
     data_cache->fs_event.event = EVENT_UNLINK;
@@ -71,6 +123,7 @@ __attribute__((always_inline)) static int trace_unlink_ret(struct pt_regs *ctx)
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache, &key);
     if (!data_cache)
         return 0;
+
     data_cache->fs_event.retval = PT_REGS_RC(ctx);
 
     resolve_paths(ctx, data_cache, RESOLVE_SRC | EMIT_EVENT);
@@ -78,12 +131,22 @@ __attribute__((always_inline)) static int trace_unlink_ret(struct pt_regs *ctx)
     return 0;
 }
 
-SEC("kprobe/do_unlinkat")
-int kprobe_do_unlinkat(struct pt_regs *ctx)
+
+
+SEC("tracepoint/syscalls/sys_enter_unlinkat")
+int tracepoint_do_unlinkat(struct unlinkat_args *args)
 {
-    // The only possible flag is AT_REMOVEDIR
-    // which is already handled by the do_rmdir probe
-    return trace__sys_unlink(0);
+    const char __user *pathname = NULL;
+    int flag = 0;
+    bpf_probe_read(&pathname, sizeof(pathname), &args->pathname);
+    bpf_probe_read(&flag, sizeof(flag), &args->flag);
+    return trace__sys_unlink(flag, pathname);
+}
+
+SEC("tracepoint/syscalls/sys_exit_unlinkat")
+int tracepoint_do_unlinkat_ret(struct unlinkat_ret_args *args)
+{
+    return trace__sys_unlink_ret(args);
 }
 
 SEC("kprobe/vfs_unlink")

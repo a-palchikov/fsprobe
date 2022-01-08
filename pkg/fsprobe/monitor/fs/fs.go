@@ -165,6 +165,22 @@ var (
 			},
 			model.Unlink: {
 				{
+					Name:        "unlinkat",
+					SectionName: "tracepoint/syscalls/sys_enter_unlinkat",
+					Enabled:     false,
+					Type:        ebpf.TracePoint,
+					DependsOn:   []*model.Probe{mntWantWriteProbe, linkPathWalkProbe},
+				},
+				{
+					Name:        "unlinkat_ret",
+					SectionName: "tracepoint/syscalls/sys_exit_unlinkat",
+					Enabled:     false,
+					Type:        ebpf.TracePoint,
+					Constants: []string{
+						model.InodeFilteringModeConst,
+					},
+				},
+				{
 					Name:        "unlink",
 					SectionName: "kprobe/vfs_unlink",
 					Enabled:     false,
@@ -351,7 +367,9 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 		"comm":   event.Comm,
 		"ret":    event.Retval,
 	})
-	//logger.Info("New event.")
+	if event.SrcMountID == 253 {
+		logger.Info("New event.")
+	}
 	var matched bool
 	switch event.EventType {
 	case model.Open:
@@ -403,7 +421,9 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 	}
 
 	if !matched {
-		//logger.Info("Unmatched.")
+		if event.SrcMountID == 253 {
+			logger.Info("Unmatched.")
+		}
 		return
 	}
 

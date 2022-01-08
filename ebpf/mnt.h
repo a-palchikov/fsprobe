@@ -17,7 +17,7 @@ int kprobe_mnt_want_write(struct pt_regs *ctx) {
 
     switch (syscall->type) {
     case EVENT_MKDIR:
-        bpf_printk("mnt_want_write_e: mkdir.");
+        //bpf_printk("mnt_want_write_e: mkdir.");
     case EVENT_RENAME:
         if (syscall->rename.src_file.path_key.mount_id > 0)
             return 0;

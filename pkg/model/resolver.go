@@ -21,6 +21,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 	"unsafe"
 
@@ -109,8 +110,6 @@ func NewPathFragmentsResolver(monitor *Monitor) (*PathFragmentsResolver, error) 
 	return &PathFragmentsResolver{
 		cache:  cache,
 		mounts: monitor.Options.Mounts,
-		//key:    &PathFragmentsKey{},
-		//value:  &PathFragmentsValue{},
 	}, nil
 }
 
@@ -119,10 +118,11 @@ func NewPathFragmentsResolver(monitor *Monitor) (*PathFragmentsResolver, error) 
 func (pfr *PathFragmentsResolver) ResolveInode(leaf PathFragmentsKey) (filename string, err error) {
 	log := logrus.New()
 	log.SetOutput(ioutil.Discard)
-	//if leaf.mountID == 253 {
-	//	log.SetOutput(os.Stdout)
-	//	log.SetLevel(logrus.DebugLevel)
-	//}
+	var debug bool
+	if debug {
+		log.SetOutput(os.Stdout)
+		log.SetLevel(logrus.DebugLevel)
+	}
 	logger := log.WithField("key", leaf.String())
 	logger.Debug("ResolveInode.")
 	key := leaf

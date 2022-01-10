@@ -116,13 +116,9 @@ __attribute__((always_inline)) static int trace_rename(struct pt_regs *ctx, stru
     data_cache->target_dir = new_dir;
     data_cache->target_dentry = new_dentry;
 
-    //bpf_printk("vfs_rename_e: matching.");
-
     if (!match(data_cache, FILTER_SRC) && !match(data_cache, FILTER_TARGET)) {
         return 0;
     }
-
-    //bpf_printk("vfs_rename_e: matched.");
 
     resolve_paths(ctx, data_cache, RESOLVE_SRC);
     bpf_map_update_elem(&dentry_cache, &key, data_cache, BPF_ANY);

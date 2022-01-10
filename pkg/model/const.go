@@ -650,13 +650,14 @@ var flagStrings = map[OpenFlag]string{
 	O_NONBLOCK:  "O_NONBLOCK",
 	O_PATH:      "O_PATH",
 	O_SYNC:      "O_SYNC",
-	O_TMPFILE:   "O_TMPFILE",
+	__O_TMPFILE: "O_TMPFILE",
 	O_TRUNC:     "O_TRUNC",
 }
 
 const (
-	O_PATH    = 0x200000
-	O_TMPFILE = 0x410000
+	O_PATH      = 0x200000
+	O_TMPFILE   = 0x410000 // __O_TMPFILE | O_DIRECTORY
+	__O_TMPFILE = 0x400000
 )
 
 // OpenFlag - Open syscall flag

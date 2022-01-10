@@ -16,8 +16,9 @@ limitations under the License.
 package model
 
 import (
-	"github.com/Gui774ume/ebpf"
 	"github.com/sirupsen/logrus"
+
+	"github.com/Gui774ume/ebpf"
 )
 
 // Probe - eBPF probe structure

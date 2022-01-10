@@ -117,7 +117,7 @@ __attribute__((always_inline)) static int trace_mkdir_ret(struct pt_regs *ctx)
 #ifdef DEBUG
     struct basename path = {};
     get_dentry_name(data_cache->src_dentry, &path, sizeof(path));
-    bpf_printk("mkdir_ret: resolve paths, ino=%ld, mnt_id=%d, name=%s.",
+    bpf_printk("mkdir_x: resolve paths, ino=%ld, mnt_id=%d, name=%s.",
               data_cache->fs_event.src_inode,
               data_cache->fs_event.src_mount_id,
               path.name);

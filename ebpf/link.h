@@ -148,7 +148,6 @@ __attribute__((always_inline)) static int trace_link_ret(struct pt_regs *ctx)
     data_cache->fs_event.retval = PT_REGS_RC(ctx);
     data_cache->fs_event.target_inode = get_dentry_ino(data_cache->target_dentry);
     data_cache->fs_event.target_mount_id = get_path_mount_id(syscall->link.target_path);
-    //data_cache->fs_event.target_mount_id = syscall->link.target_file.path_key.mount_id;
 
     resolve_paths(ctx, data_cache, RESOLVE_TARGET | EMIT_EVENT);
     bpf_map_delete_elem(&dentry_cache, &key);

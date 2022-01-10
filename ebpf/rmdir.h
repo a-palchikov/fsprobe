@@ -40,7 +40,6 @@ long __attribute__((always_inline)) trace__sys_rmdir_ret(struct pt_regs *ctx)
         return 0;
 
     int ret = PT_REGS_RC(ctx);
-    //bpf_printk("rmdir_x: found syscall value stack: ret=%ld.", ret);
     if (ret == 0)
     {
         // Do not handle success

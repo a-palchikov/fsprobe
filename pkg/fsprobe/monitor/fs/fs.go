@@ -38,12 +38,12 @@ var (
 			Enabled:     false,
 			Type:        ebpf.Kprobe,
 		},
-		{
-			Name:        "filename_create_ret",
-			SectionName: "kretprobe/filename_create",
-			Enabled:     false,
-			Type:        ebpf.Kprobe,
-		},
+		//{
+		//	Name:        "filename_create_ret",
+		//	SectionName: "kretprobe/filename_create",
+		//	Enabled:     false,
+		//	Type:        ebpf.Kprobe,
+		//},
 	}
 	mntWantWriteProbe = &model.Probe{
 		Name:        "mnt_want_write",
@@ -347,7 +347,6 @@ type openFlag = model.OpenFlag
 func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 	// Take cleanup actions on the cache
 	log := logrus.New()
-	//debug := event.SrcMountID == 253 || event.TargetMountID == 253
 	var debug bool
 	log.SetOutput(ioutil.Discard)
 	if debug {
@@ -427,7 +426,6 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 		return
 	}
 
-	//logger.Debug("Matched.")
 	// Dispatch event
 	select {
 	case monitor.Options.EventChan <- event:
@@ -452,8 +450,6 @@ func removeCacheEntry(key model.PathFragmentsKey, m *model.Monitor) error {
 // matches determines whether filename matches any of the watched paths.
 // expects filename != ""
 func (r *FSEventHandler) matches(mountID int, path string) bool {
-	// TODO(dima): figure out the details on bogus mount IDs and
-	// root paths
 	if path == "" || path == "/" {
 		return false
 	}

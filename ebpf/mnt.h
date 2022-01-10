@@ -17,9 +17,6 @@ int kprobe_mnt_want_write(struct pt_regs *ctx) {
 
     switch (syscall->type) {
     case EVENT_MKDIR:
-        //if (syscall->mkdir.file.path_key.mount_id > 0)
-        //    return 0;
-        //syscall->mkdir.file.path_key.mount_id = get_vfsmount_mount_id(mnt);
         break;
     case EVENT_RENAME:
         if (syscall->rename.src_file.path_key.mount_id > 0)

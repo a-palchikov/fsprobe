@@ -225,8 +225,6 @@ func (fsp *FSProbe) startMonitors() error {
 func (fsp *FSProbe) addWatch(paths ...string) error {
 	// Add paths to the list of watched paths
 	fsp.runningMutex.Lock()
-	// FIXME(dima): remove me
-	//fsp.paths = append(fsp.paths, paths...)
 	fsp.runningMutex.Unlock()
 	if fsp.options.Recursive {
 		// Watch all directories provided in paths recursively
@@ -303,10 +301,6 @@ func (fsp *FSProbe) addRecursiveWatch(paths ...string) error {
 				}).Warn("Failed to add watch.")
 				return nil
 			}
-			// FIXME(dima): remove me
-			//if !fi.IsDir() {
-			//	return fsp.addTopLevelWatch([]string{walkPath}...)
-			//}
 			stat, ok := fi.Sys().(*syscall.Stat_t)
 			if !ok {
 				return nil

@@ -32,10 +32,7 @@ __attribute__((always_inline)) static int match_src(struct dentry_cache_t *data_
         if (bpf_map_lookup_elem(&inodes_filter, &ino) == NULL) {
             return 0;
         }
-        //bpf_printk("match_src: match on parent: %ld (for %ld)", ino, data_cache->fs_event.src_inode);
-        //return 1;
     }
-    //bpf_printk("match_src: match on inode: %ld", data_cache->fs_event.src_inode);
     return 1;
 }
 

@@ -31,16 +31,18 @@ import (
 	"github.com/Gui774ume/fsprobe/pkg/utils"
 )
 
+func NewPathKey(inode uint64, mountID uint32) PathFragmentsKey {
+	return PathFragmentsKey{
+		inode:   inode,
+		mountID: mountID,
+	}
+}
+
 // PathFragmentsKey - Key of a dentry cache hashmap
 type PathFragmentsKey struct {
 	inode     uint64
 	mountID   uint32
 	__padding uint32
-}
-
-func (pfk *PathFragmentsKey) Set(mountID uint32, inode uint64) {
-	pfk.mountID = mountID
-	pfk.inode = inode
 }
 
 func (pfk *PathFragmentsKey) Write(buffer []byte) {
@@ -95,8 +97,6 @@ func (pfv *PathFragmentsValue) GetString() string {
 // PathFragmentsResolver - Dentry resolver of the path fragments method
 type PathFragmentsResolver struct {
 	cache  *ebpf.Map
-	key    *PathFragmentsKey
-	value  *PathFragmentsValue
 	mounts map[int]utils.MountInfo
 }
 
@@ -109,24 +109,26 @@ func NewPathFragmentsResolver(monitor *Monitor) (*PathFragmentsResolver, error) 
 	return &PathFragmentsResolver{
 		cache:  cache,
 		mounts: monitor.Options.Mounts,
-		key:    &PathFragmentsKey{},
-		value:  &PathFragmentsValue{},
+		//key:    &PathFragmentsKey{},
+		//value:  &PathFragmentsValue{},
 	}, nil
 }
 
 // ResolveInode - Resolves a pathname from the provided mount id and inode
 // Assumes that mountID != 0 && inode != 0
-func (pfr *PathFragmentsResolver) ResolveInode(mountID uint32, inode uint64) (filename string, err error) {
+func (pfr *PathFragmentsResolver) ResolveInode(leaf PathFragmentsKey) (filename string, err error) {
 	log := logrus.New()
 	log.SetOutput(ioutil.Discard)
-	logger := log.WithFields(logrus.Fields{
-		"mnt_id": mountID,
-		"ino":    inode,
-	})
+	//if leaf.mountID == 253 {
+	//	log.SetOutput(os.Stdout)
+	//	log.SetLevel(logrus.DebugLevel)
+	//}
+	logger := log.WithField("key", leaf.String())
 	logger.Debug("ResolveInode.")
-	pfr.key.Set(mountID, inode)
-	keyB := pfr.key.GetKeyBytes()
-	valueB := []byte{}
+	key := leaf
+	keyB := key.GetKeyBytes()
+	var value PathFragmentsValue
+	var valueB []byte
 	done := false
 	// Fetch path recursively
 	for !done {
@@ -135,50 +137,44 @@ func (pfr *PathFragmentsResolver) ResolveInode(mountID uint32, inode uint64) (fi
 			break
 		}
 		// Read next key from valueB (parent key)
-		read := pfr.key.Read(valueB)
+		read := key.Read(valueB)
 		// Read current fragment from valueB
-		if err = pfr.value.Read(valueB[read:]); err != nil {
+		if err = value.Read(valueB[read:]); err != nil {
 			err = errors.Wrap(err, "failed to decode fragment")
 			break
 		}
 		logger := log.WithFields(logrus.Fields{
-			"mnt_id": pfr.key.mountID,
-			"ino":    pfr.key.inode,
+			"par/mnt_id": key.mountID,
+			"par/ino":    key.inode,
+			"frag":       value.GetString(),
 		})
 		logger.Debug("Decoded fragment value.")
 
 		// Don't append dentry name if this is the root dentry (i.e. name == '/')
-		if !pfr.value.IsRoot() {
-			filename = "/" + pfr.value.GetString() + filename
+		if !value.IsRoot() {
+			filename = "/" + value.GetString() + filename
 		}
 
-		if pfr.key.HasEmptyInode() {
+		if key.HasEmptyInode() {
 			logger.Debug("Value has empty inode, bail.")
 			break
 		}
 
 		logger.Debug("Move to next key.")
 		// Prepare next key
-		pfr.key.Write(keyB)
+		key.Write(keyB)
 	}
 
 	if len(filename) == 0 {
 		filename = "/"
 	}
 
-	return pfr.resolveWithMount(mountID, filename), err
+	return pfr.resolveWithMount(leaf.mountID, filename), err
 }
 
 // RemoveInode - Removes a pathname from the kernel cache using the provided mount id and inode
-func (pfr *PathFragmentsResolver) RemoveInode(mountID uint32, inode uint64) error {
-	// Don't resolve path if pathnameKey isn't valid
-	pfr.key.Set(mountID, inode)
-	if pfr.key.IsNull() {
-		return fmt.Errorf("invalid inode/mountID tuple: %s", pfr.key.String())
-	}
-	keyB := pfr.key.GetKeyBytes()
-	// Delete entry
-	return pfr.cache.Delete(keyB)
+func (pfr *PathFragmentsResolver) RemoveInode(key PathFragmentsKey) error {
+	return pfr.cache.Delete(key.GetKeyBytes())
 }
 
 func (pfr *PathFragmentsResolver) resolveWithMount(mountID uint32, path string) string {
@@ -187,3 +183,10 @@ func (pfr *PathFragmentsResolver) resolveWithMount(mountID uint32, path string) 
 	}
 	return path
 }
+
+// IsFakeInode returns whether the given inode is a fake inode
+func IsFakeInode(inode uint64) bool {
+	return inode>>32 == uint64(fakeInodeMSW)
+}
+
+const fakeInodeMSW = 0xdeadc001

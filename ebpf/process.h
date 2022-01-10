@@ -16,6 +16,8 @@ limitations under the License.
 #ifndef _PROCESS_H_
 #define _PROCESS_H_
 
+#include "defs.h"
+
 // process_ctx_t - Contains all the process context collected for a file system event
 struct process_ctx_t
 {
@@ -45,5 +47,15 @@ __attribute__((always_inline)) static u64 fill_process_data(struct process_ctx_t
     data->gid = userid;
     return id;
 }
+
+//static int __attribute__((always_inline)) is_current_pid()
+//{
+//    u64 id = bpf_get_current_pid_tgid();
+//    int current_pid = 0;
+//    LOAD_CONSTANT("current_pid", current_pid);
+//    if ((id >> 32) == current_pid)
+//      return 1;
+//    return 0;
+//}
 
 #endif

@@ -58,6 +58,7 @@ struct dentry_cache_t
     // pathname optionally specifies the pathname
     // in case of failure
     const char *pathname;
+    const char *target_pathname;
     u32 cursor;
 };
 

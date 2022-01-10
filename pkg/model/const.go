@@ -625,7 +625,7 @@ func (r OpenFlag) String() string {
 		fmt.Fprint(&b, "O_RDONLY|")
 	}
 	for f, s := range flagStrings {
-		if r&f != 0 {
+		if r&f == f {
 			fmt.Fprint(&b, s, "|")
 		}
 	}

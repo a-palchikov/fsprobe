@@ -54,21 +54,20 @@ __attribute__((always_inline)) static int trace_link(struct pt_regs *ctx, struct
     //set_file_inode(src_dentry, &syscall->link.src_file, 0);
 
     // generate a fake target key as the inode is the same
-    data_cache->fs_event.src_path_key = bpf_get_prandom_u32();
+    data_cache->fs_event.src_path_key = new_fake_inode();
     syscall->link.target_file.path_key.mount_id = syscall->link.src_file.path_key.mount_id;
     //if (is_overlayfs(src_dentry))
     //    syscall->link.target_file.flags |= UPPER_LAYER;
 
-    // Dentry data
     data_cache->src_dentry = old_dentry;
     data_cache->target_dir = new_dir;
     data_cache->target_dentry = new_dentry;
 
-    if (match(data_cache, FILTER_SRC) || match(data_cache, FILTER_TARGET)) {
-        resolve_paths(ctx, data_cache, RESOLVE_SRC);
-        bpf_map_update_elem(&dentry_cache, &key, data_cache, BPF_ANY);
-    }
+    if (!match(data_cache, FILTER_SRC) && !match(data_cache, FILTER_TARGET))
+        return 0;
 
+    resolve_paths(ctx, data_cache, RESOLVE_SRC);
+    bpf_map_update_elem(&dentry_cache, &key, data_cache, BPF_ANY);
     return 0;
 }
 
@@ -84,6 +83,7 @@ __attribute__((always_inline)) static int trace_link_ret(struct pt_regs *ctx)
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache, &key);
     if (!data_cache)
         return 0;
+
     data_cache->fs_event.retval = PT_REGS_RC(ctx);
     data_cache->fs_event.target_inode = get_dentry_ino(data_cache->target_dentry);
     data_cache->fs_event.target_mount_id = get_path_mount_id(syscall->link.target_path);

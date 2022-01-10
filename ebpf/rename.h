@@ -16,12 +16,74 @@ limitations under the License.
 #ifndef _RENAME_H_
 #define _RENAME_H_
 
-int __attribute__((always_inline)) trace__sys_rename() {
+int __attribute__((always_inline)) trace__sys_rename(const char __user *old_name, const char __user *new_name) {
     struct syscall_cache_t syscall = {
         .type = EVENT_RENAME,
     };
 
+    bpf_probe_read_str(&syscall.rename.src_pathname, MAX_PATH_LEN, (void*)old_name);
+    bpf_probe_read_str(&syscall.rename.target_pathname, MAX_PATH_LEN, (void*)new_name);
     cache_syscall(&syscall);
+    return 0;
+}
+
+// Trace the return from do_renameat2.
+// This is used to trace the unsuccessful return from renameat2 in which case
+// we synthesize path fragments for source/target pathnames and resolve
+// dentry from the base directory (set in link_path_walk).
+int __attribute__((always_inline)) trace__sys_rename_ret(struct pt_regs *ctx) {
+    // Remove syscall metadata in any case
+    struct syscall_cache_t *syscall = pop_syscall(EVENT_RENAME);
+    if (!syscall)
+    {
+        bpf_printk("do_renameat2_x: syscall already popped.");
+        return 0;
+    }
+
+    int ret = PT_REGS_RC(ctx);
+    if (ret == 0)
+    {
+        // Do not handle success
+        return 0;
+    }
+
+    u32 cpu = bpf_get_smp_processor_id();
+    struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache_builder, &cpu);
+    if (!data_cache)
+        return 0;
+
+    fill_process_data(&data_cache->fs_event.process_data);
+    data_cache->fs_event.retval = ret;
+    data_cache->fs_event.event = EVENT_RENAME;
+    // Store the inode/mount ID tuples for the base path
+    data_cache->fs_event.src_inode = syscall->rename.src_file.path_key.ino;
+    data_cache->fs_event.src_mount_id = syscall->rename.src_file.path_key.mount_id;
+    data_cache->fs_event.target_mount_id = syscall->rename.target_file.path_key.mount_id;
+    data_cache->fs_event.target_inode = syscall->rename.target_file.path_key.ino;
+
+    struct dentry *src_dentry;
+    bpf_probe_read(&src_dentry, sizeof(struct dentry *), &syscall->rename.src_dentry);
+    data_cache->src_dentry = src_dentry;
+
+    struct dentry *target_dentry;
+    bpf_probe_read(&target_dentry, sizeof(struct dentry *), &syscall->rename.target_dentry);
+    data_cache->target_dentry = target_dentry;
+
+    if (!match(data_cache, FILTER_SRC) && !match(data_cache, FILTER_TARGET))
+        return 0;
+
+    bpf_printk("do_renameat2_x: ret=%d.", data_cache->fs_event.retval);
+    bpf_printk("do_renameat2_x: src(ino=%ld/mnt_id=%d).",
+               data_cache->fs_event.src_inode,
+               data_cache->fs_event.src_mount_id);
+    bpf_printk("do_renameat2_x: tgt(ino=%ld/mnt_id=%d).",
+               data_cache->fs_event.target_inode,
+               data_cache->fs_event.target_mount_id);
+
+    data_cache->pathname = syscall->rename.src_pathname;
+    data_cache->target_pathname = syscall->rename.target_pathname;
+    resolve_paths(ctx, data_cache, RESOLVE_ALL | EMIT_EVENT);
+
     return 0;
 }
 
@@ -45,21 +107,26 @@ __attribute__((always_inline)) static int trace_rename(struct pt_regs *ctx, stru
     data_cache->fs_event.event = EVENT_RENAME;
     data_cache->fs_event.src_inode = get_dentry_ino(old_dentry);
     // Generate a fake key for the old inode as the inode will be reused
-    data_cache->fs_event.src_path_key = bpf_get_prandom_u32();
+    data_cache->fs_event.src_path_key = new_fake_inode();
     // Add old mount ID
     data_cache->fs_event.src_mount_id = syscall->rename.src_file.path_key.mount_id;
 
-    // Dentry data
     syscall->rename.src_dentry = old_dentry;
     syscall->rename.target_dentry = new_dentry;
     data_cache->src_dentry = old_dentry;
     data_cache->target_dir = new_dir;
     data_cache->target_dentry = new_dentry;
 
-    if (match(data_cache, FILTER_SRC) || match(data_cache, FILTER_TARGET)) {
-        resolve_paths(ctx, data_cache, RESOLVE_SRC);
-        bpf_map_update_elem(&dentry_cache, &key, data_cache, BPF_ANY);
+    //bpf_printk("vfs_rename_e: matching.");
+
+    if (!match(data_cache, FILTER_SRC) && !match(data_cache, FILTER_TARGET)) {
+        return 0;
     }
+
+    //bpf_printk("vfs_rename_e: matched.");
+
+    resolve_paths(ctx, data_cache, RESOLVE_SRC);
+    bpf_map_update_elem(&dentry_cache, &key, data_cache, BPF_ANY);
     return 0;
 }
 
@@ -75,9 +142,20 @@ __attribute__((always_inline)) static int trace_rename_ret(struct pt_regs *ctx)
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache, &key);
     if (!data_cache)
         return 0;
+
     data_cache->fs_event.retval = PT_REGS_RC(ctx);
     data_cache->fs_event.target_inode = get_dentry_ino(syscall->rename.src_dentry);
     data_cache->fs_event.target_mount_id = syscall->rename.target_file.path_key.mount_id;
+
+#ifdef DEBUG
+    bpf_printk("vfs_rename_x: ret=%d", data_cache->fs_event.retval);
+    bpf_printk("vfs_rename_x: src(ino=%ld/mnt_id=%d)",
+               data_cache->fs_event.src_inode,
+               data_cache->fs_event.src_mount_id);
+    bpf_printk("vfs_rename_x: tgt(ino=%ld/mnt_id=%d)",
+               data_cache->fs_event.target_inode,
+               data_cache->fs_event.target_mount_id);
+#endif
 
     resolve_paths(ctx, data_cache, RESOLVE_TARGET | EMIT_EVENT);
 
@@ -95,7 +173,15 @@ __attribute__((always_inline)) static int trace_rename_ret(struct pt_regs *ctx)
 SEC("kprobe/do_renameat2")
 int kprobe_do_renameat2(struct pt_regs *ctx)
 {
-    return trace__sys_rename();
+    const char __user *old_name = (const char __user *)PT_REGS_PARM2(ctx);
+    const char __user *new_name = (const char __user *)PT_REGS_PARM4(ctx);
+    return trace__sys_rename(old_name, new_name);
+}
+
+SEC("kretprobe/do_renameat2")
+int kretprobe_do_renameat2(struct pt_regs *ctx)
+{
+    return trace__sys_rename_ret(ctx);
 }
 
 SEC("kprobe/vfs_rename")

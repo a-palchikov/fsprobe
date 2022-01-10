@@ -19,6 +19,7 @@ import (
 	"C"
 	"bytes"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -127,38 +128,32 @@ func ParseFSEvent(data []byte, monitor *Monitor) (*FSEvent, error) {
 
 // resolvePaths - Resolves the paths of the event according to the configured method
 func resolvePaths(data []byte, evt *FSEvent, monitor *Monitor, read int) (err error) {
-	inode := evt.SrcInode
-	if evt.SrcPathnameKey != 0 {
-		inode = uint64(evt.SrcPathnameKey)
-	}
 	logger := logrus.WithFields(logrus.Fields{
 		"type": evt.EventType,
 		"comm": evt.Comm,
 	})
-	if evt.SrcMountID == 0 && inode == 0 {
+	key := evt.SrcPathKey()
+	if key.IsNull() {
 		logger.Debug("Invalid mountID/inode tuple.")
 		return nil
 	}
-	evt.SrcFilename, err = monitor.DentryResolver.ResolveInode(evt.SrcMountID, inode)
+	evt.SrcFilename, err = monitor.DentryResolver.ResolveInode(key)
 	if err != nil {
 		return errors.Wrap(err, "failed to resolve src dentry path")
 	}
 	switch evt.EventType {
 	case Link, Rename:
-		if evt.TargetMountID == 0 && evt.TargetInode == 0 {
-			logger.Debug("Invalid mountID/inode tuple.")
-			return nil
-		}
-		evt.TargetFilename, err = monitor.DentryResolver.ResolveInode(evt.TargetMountID, evt.TargetInode)
+		targetKey := evt.TargetPathKey()
+		evt.TargetFilename, err = monitor.DentryResolver.ResolveInode(targetKey)
 		if err != nil {
 			return errors.Wrap(err, "failed to resolve target dentry path")
 		}
-	}
-	if evt.EventType == Link {
-		// Remove cache entry for link events
-		_ = monitor.DentryResolver.RemoveInode(evt.TargetMountID, evt.TargetInode)
-		// TODO(dima): why double delete?
-		//_ = monitor.DentryResolver.RemoveInode(evt.TargetMountID, evt.TargetInode)
+		if evt.EventType == Link {
+			// Remove cache entry for link events
+			_ = monitor.DentryResolver.RemoveInode(targetKey)
+			// TODO(dima): why double delete?
+			//_ = monitor.DentryResolver.RemoveInode(evt.TargetMountID, evt.TargetInode)
+		}
 	}
 	return nil
 }
@@ -282,4 +277,40 @@ func (fs *FSEvent) PrintFlags() string {
 	default:
 		return fmt.Sprintf("%v", fs.Flags)
 	}
+}
+
+func (fs FSEvent) PrintInode() string {
+	var inode uint64
+	switch fs.EventType {
+	case Link, Rename:
+		inode = fs.TargetInode
+		if fs.TargetPathnameKey != 0 {
+			inode = uint64(fs.TargetPathnameKey)
+		}
+	default:
+		inode = fs.SrcInode
+		if fs.SrcPathnameKey != 0 {
+			inode = uint64(fs.SrcPathnameKey)
+		}
+	}
+	if IsFakeInode(inode) {
+		return fmt.Sprint("*", strconv.FormatUint(inode&((1<<32)-1), 10))
+	}
+	return strconv.FormatUint(inode, 10)
+}
+
+func (fs FSEvent) SrcPathKey() PathFragmentsKey {
+	inode := fs.SrcInode
+	if fs.SrcPathnameKey != 0 {
+		inode = uint64(fs.SrcPathnameKey)
+	}
+	return NewPathKey(inode, fs.SrcMountID)
+}
+
+func (fs FSEvent) TargetPathKey() PathFragmentsKey {
+	inode := fs.TargetInode
+	if fs.TargetPathnameKey != 0 {
+		inode = uint64(fs.TargetPathnameKey)
+	}
+	return NewPathKey(inode, fs.TargetMountID)
 }

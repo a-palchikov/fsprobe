@@ -61,7 +61,6 @@ long __attribute__((always_inline)) trace__sys_mkdir_ret(struct pt_regs *ctx)
     if (!match(data_cache, FILTER_SRC))
         return 0;
 
-    //data_cache->pathname = &syscall->mkdir.pathname[0];
     data_cache->pathname = syscall->mkdir.pathname;
     resolve_paths(ctx, data_cache, RESOLVE_SRC | EMIT_EVENT);
 

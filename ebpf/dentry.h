@@ -24,10 +24,48 @@ limitations under the License.
 
 #define RESOLVE_SRC    1 << 0
 #define RESOLVE_TARGET 1 << 1
+#define RESOLVE_ALL    (RESOLVE_SRC | RESOLVE_TARGET)
 #define EMIT_EVENT     1 << 2
 
 #define MNT_OFFSETOF_MNT 32 // offsetof(struct mount, mnt)
 #define DENTRY_OFFSETOF_INODE 48 // offsetof(struct dentry, d_inode)
+
+// Marker for synthetic inodes generated for source
+// inode in a rename/link syscall and ENOENT errors during path resolution
+#define FAKE_INODE_MSW 0xdeadc001UL
+
+/*
+ * Type of the last component on LOOKUP_PARENT
+ */
+enum {LAST_NORM, LAST_ROOT, LAST_DOT, LAST_DOTDOT, LAST_BIND};
+
+//#define EMBEDDED_LEVELS 2
+struct nameidata {
+	struct path	path;
+	struct qstr	last;
+	struct path	root;
+	struct inode	*inode; /* path.dentry.d_inode */
+	unsigned int	flags;
+	unsigned	seq, m_seq;
+	int		last_type;
+	//unsigned	depth;
+	//int		total_link_count;
+	//struct saved {
+	//	struct path link;
+	//	struct delayed_call done;
+	//	const char *name;
+	//	unsigned seq;
+	//} *stack, internal[EMBEDDED_LEVELS];
+	//struct filename	*name;
+	//struct nameidata *saved;
+	//struct inode	*link_inode;
+	//unsigned	root_seq;
+	//int		dfd;
+};
+
+u64 __attribute__((always_inline)) new_fake_inode() {
+    return FAKE_INODE_MSW<<32 | bpf_get_prandom_u32();
+}
 
 dev_t __attribute__((always_inline)) get_sb_dev(struct super_block *sb) {
     dev_t dev;
@@ -261,13 +299,13 @@ __attribute__((always_inline)) static int resolve_dentry_fragments(struct dentry
     return DENTRY_MAX_DEPTH;
 }
 
-__attribute__((always_inline)) static void embed_pathname(struct path_key_t *base_key, struct dentry_cache_t *cache) {
+__attribute__((always_inline)) static void embed_pathname(struct path_key_t *base_key,
+                                                          struct dentry_cache_t *cache,
+                                                          int flag) {
     struct path_key_t key = {};
-    // Generate random key for pathname
-    key.ino = bpf_get_prandom_u32();
+    key.ino = new_fake_inode();
     key.mount_id = base_key->mount_id;
 
-    //struct path_fragment_t *value = NULL;
     u32 cpu = bpf_get_smp_processor_id();
     struct path_fragment_t *value = bpf_map_lookup_elem(&path_fragment_builder, &cpu);
     if (!value)
@@ -276,14 +314,23 @@ __attribute__((always_inline)) static void embed_pathname(struct path_key_t *bas
     value->parent = *base_key;
     // Invalidate the fragment for the pathname as it is supposed to be unique
     bpf_map_delete_elem(&path_fragments, &key);
-    bpf_probe_read_str(&value->name, sizeof(value->name), (void *)cache->pathname);
+    if ((flag & RESOLVE_SRC) == RESOLVE_SRC) {
+        bpf_probe_read_str(&value->name, sizeof(value->name), (void *)cache->pathname);
+    } else {
+        bpf_probe_read_str(&value->name, sizeof(value->name), (void *)cache->target_pathname);
+    }
     //bpf_printk("embed_path: parent=ino:%ld/mnt_id=%d (%ld/%d).",
     //           value->parent.ino, value->parent.mount_id,
     //           key.ino, key.mount_id);
     bpf_map_update_elem(&path_fragments, &key, value, BPF_ANY);
     // Override the path key for pathname
-    cache->fs_event.src_inode=key.ino;
-    cache->fs_event.src_mount_id=key.mount_id;
+    if ((flag & RESOLVE_SRC) == RESOLVE_SRC) {
+        cache->fs_event.src_inode=key.ino;
+        cache->fs_event.src_mount_id=key.mount_id;
+    } else {
+        cache->fs_event.target_inode=key.ino;
+        cache->fs_event.target_mount_id=key.mount_id;
+    }
 }
 
 // resolve_paths - Resolves the paths of an event using the multiple fragments method. This method creates an entry in a hashmap for each
@@ -302,7 +349,7 @@ __attribute__((always_inline)) static int resolve_paths(void *ctx, struct dentry
         }
         key.mount_id = cache->fs_event.src_mount_id;
         if (cache->pathname) {
-            embed_pathname(&key, cache);
+            embed_pathname(&key, cache, flag&RESOLVE_SRC);
         }
         resolve_dentry_fragments(cache->src_dentry, &key);
     }
@@ -313,8 +360,8 @@ __attribute__((always_inline)) static int resolve_paths(void *ctx, struct dentry
             // Make sure to resolve the new inode regardless of the cache
             bpf_map_delete_elem(&path_fragments, &key);
         }
-        if (cache->pathname) {
-            embed_pathname(&key, cache);
+        if (cache->target_pathname) {
+            embed_pathname(&key, cache, flag&RESOLVE_TARGET);
         }
         resolve_dentry_fragments(cache->target_dentry, &key);
     }

@@ -17,6 +17,9 @@ package fs
 
 import (
 	"C"
+	"fmt"
+	"io/ioutil"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -26,7 +29,6 @@ import (
 	"github.com/Gui774ume/fsprobe/pkg/model"
 	"github.com/Gui774ume/fsprobe/pkg/utils"
 )
-import "fmt"
 
 var (
 	filenameCreateProbes = []*model.Probe{
@@ -72,23 +74,6 @@ var (
 			model.SyscallsMap,
 		},
 		Probes: map[string][]*model.Probe{
-			//model.Create: {
-			//	{
-			//		Name:        "create",
-			//		SectionName: "kprobe/vfs_create",
-			//		Enabled:     false,
-			//		Type:        ebpf.Kprobe,
-			//		Constants: []string{
-			//			model.InodeFilteringModeConst,
-			//		},
-			//	},
-			//	{
-			//		Name:        "create_ret",
-			//		SectionName: "kretprobe/vfs_create",
-			//		Enabled:     false,
-			//		Type:        ebpf.Kprobe,
-			//	},
-			//},
 			model.Open: {
 				{
 					Name:        "open",
@@ -246,7 +231,6 @@ var (
 					Constants: []string{
 						model.InodeFilteringModeConst,
 					},
-					//DependsOn: []*model.Probe{filenameCreateProbe},
 					DependsOn: filenameCreateProbes,
 				},
 				{
@@ -262,6 +246,16 @@ var (
 					SectionName: "kprobe/do_renameat2",
 					Enabled:     false,
 					Type:        ebpf.Kprobe,
+					DependsOn:   []*model.Probe{linkPathWalkProbe},
+				},
+				{
+					Name:        "renameat",
+					SectionName: "kretprobe/do_renameat2",
+					Enabled:     false,
+					Type:        ebpf.Kprobe,
+					Constants: []string{
+						model.InodeFilteringModeConst,
+					},
 				},
 				{
 					Name:        "rename",
@@ -282,23 +276,6 @@ var (
 						model.FollowModeConst,
 					},
 				},
-			},
-			model.Modify: {
-				//{
-				//	Name:        "modify",
-				//	SectionName: "kprobe/__fsnotify_parent",
-				//	Enabled:     false,
-				//	Type:        ebpf.Kprobe,
-				//	Constants: []string{
-				//		model.InodeFilteringModeConst,
-				//	},
-				//},
-				//{
-				//	Name:        "modify_ret",
-				//	SectionName: "kretprobe/__fsnotify_parent",
-				//	Enabled:     false,
-				//	Type:        ebpf.Kprobe,
-				//},
 			},
 			model.SetAttr: {
 				{
@@ -359,17 +336,27 @@ type openFlag = model.OpenFlag
 // that were never created for failed events.
 func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 	// Take cleanup actions on the cache
-	logger := logrus.WithFields(logrus.Fields{
-		"path":   event.SrcFilename,
-		"type":   event.EventType,
-		"mnt_id": event.SrcMountID,
-		"ino":    event.SrcInode,
-		"comm":   event.Comm,
-		"ret":    event.Retval,
-	})
-	if event.SrcMountID == 253 {
-		logger.Info("New event.")
+	log := logrus.New()
+	//debug := event.SrcMountID == 253 || event.TargetMountID == 253
+	var debug bool
+	log.SetOutput(ioutil.Discard)
+	if debug {
+		log.SetOutput(os.Stdout)
+		log.SetLevel(logrus.DebugLevel)
 	}
+	logger := log.WithFields(logrus.Fields{
+		"path":       event.SrcFilename,
+		"type":       event.EventType,
+		"mnt_id":     event.SrcMountID,
+		"key":        event.SrcPathnameKey,
+		"tgt_mnt_id": event.TargetMountID,
+		"ino":        event.SrcInode,
+		"tgt_ino":    event.TargetInode,
+		"tgt_key":    event.TargetPathnameKey,
+		"comm":       event.Comm,
+		"ret":        event.Retval,
+	})
+	logger.Info("New event.")
 	var matched bool
 	switch event.EventType {
 	case model.Open:
@@ -383,6 +370,9 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 				logger.WithError(err).Warn("Failed to add inode filter.")
 			}
 		}
+		if model.IsFakeInode(event.SrcInode) {
+			_ = removeCacheEntry(event.SrcPathKey(), monitor)
+		}
 	case model.Mkdir:
 		matched = r.matches(int(event.SrcMountID), event.SrcFilename)
 		if matched && event.IsSuccess() {
@@ -393,6 +383,9 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 			if err != nil {
 				logger.WithError(err).Warn("Failed to add inode filter.")
 			}
+		}
+		if model.IsFakeInode(event.SrcInode) {
+			_ = removeCacheEntry(event.SrcPathKey(), monitor)
 		}
 	case model.Rename:
 		matchedSrc := r.matches(int(event.SrcMountID), event.SrcFilename)
@@ -407,23 +400,20 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 				logger.WithError(err).Warn("Failed to add inode filter.")
 			}
 		}
-		if err := removeSrcCacheEntry(event, monitor); err != nil {
-			logrus.WithError(err).Warn("Failed to remove entry from cache.")
+		_ = removeCacheEntry(event.SrcPathKey(), monitor)
+		if model.IsFakeInode(event.TargetInode) {
+			_ = removeCacheEntry(event.TargetPathKey(), monitor)
 		}
 	case model.Unlink, model.Rmdir:
 		matched = r.matches(int(event.SrcMountID), event.SrcFilename)
-		if err := removeSrcCacheEntry(event, monitor); err != nil {
-			logrus.WithError(err).Warn("Failed to remove entry from cache.")
-		}
+		_ = removeCacheEntry(event.SrcPathKey(), monitor)
 	case model.SetAttr:
 	default:
 		logger.Warn("Unhandled event type.")
 	}
 
 	if !matched {
-		if event.SrcMountID == 253 {
-			logger.Info("Unmatched.")
-		}
+		logger.Info("Unmatched.")
 		return
 	}
 
@@ -445,8 +435,8 @@ func (r *FSEventHandler) maybeAddInodeFilter(monitor *model.Monitor, inode uint3
 	return err
 }
 
-func removeSrcCacheEntry(event *model.FSEvent, m *model.Monitor) error {
-	return m.DentryResolver.RemoveInode(event.SrcMountID, event.SrcInode)
+func removeCacheEntry(key model.PathFragmentsKey, m *model.Monitor) error {
+	return m.DentryResolver.RemoveInode(key)
 }
 
 // matches determines whether filename matches any of the watched paths.

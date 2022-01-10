@@ -163,7 +163,7 @@ func (to TableOutput) Write(event *model.FSEvent) error {
 		event.UID,
 		event.GID,
 		event.Comm,
-		event.SrcInode,
+		event.PrintInode(),
 		event.SrcMountID,
 		event.PrintMode(),
 		event.PrintFlags(),

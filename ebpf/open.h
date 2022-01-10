@@ -87,6 +87,10 @@ __attribute__((always_inline)) static int trace_path_openat_ret(struct pt_regs *
     // is incomplete
     data_cache->pathname = syscall->open.pathname;
 
+    struct dentry *dentry;
+    bpf_probe_read(&dentry, sizeof(struct dentry *), &data_cache->path->dentry);
+    data_cache->src_dentry = dentry;
+
     if (!match(data_cache, FILTER_SRC))
         return 0;
 
@@ -123,6 +127,17 @@ __attribute__((always_inline)) static int trace_open(struct pt_regs *ctx, struct
 
     if (!match(data_cache, FILTER_SRC))
         return 0;
+
+#ifdef DEBUG
+    struct nameidata *nd = (struct nameidata *)path;
+    int type;
+    bpf_probe_read(&type, sizeof(int), &nd->last_type);
+    if ((type == LAST_DOTDOT || type == LAST_DOT) && data_cache->fs_event.src_mount_id == 253) {
+        struct basename name = {};
+        get_dentry_name(dentry, &name, sizeof(name));
+        bpf_printk("vfs_open_e: .. or . (%d), name='%s'", type, name.name);
+    }
+#endif
 
     bpf_map_update_elem(&dentry_cache, &key, data_cache, BPF_ANY);
     return 0;

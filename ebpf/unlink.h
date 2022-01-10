@@ -131,8 +131,6 @@ __attribute__((always_inline)) static int trace_unlink_ret(struct pt_regs *ctx)
     return 0;
 }
 
-
-
 SEC("tracepoint/syscalls/sys_enter_unlinkat")
 int tracepoint_do_unlinkat(struct unlinkat_args *args)
 {

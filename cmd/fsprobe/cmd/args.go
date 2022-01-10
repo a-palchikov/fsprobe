@@ -22,10 +22,10 @@ import (
 )
 
 type EventsValue struct {
-	events *[]model.EventName
+	events *[]string
 }
 
-func NewEventsValue(events *[]model.EventName) *EventsValue {
+func NewEventsValue(events *[]string) *EventsValue {
 	return &EventsValue{
 		events: events,
 	}
@@ -60,46 +60,5 @@ func (ev *EventsValue) Set(val string) error {
 }
 
 func (ev *EventsValue) Type() string {
-	return "string"
-}
-
-type DentryResolutionModeValue struct {
-	mode *model.DentryResolutionMode
-}
-
-func NewDentryResolutionModeValue(mode *model.DentryResolutionMode) *DentryResolutionModeValue {
-	// Defaults to Perf buffer resolution mode
-	*mode = model.DentryResolutionPerfBuffer
-	return &DentryResolutionModeValue{
-		mode: mode,
-	}
-}
-
-func (drm *DentryResolutionModeValue) String() string {
-	switch *drm.mode {
-	case model.DentryResolutionFragments:
-		return "fragments"
-	case model.DentryResolutionSingleFragment:
-		return "single_fragment"
-	default:
-		return "perf_buffer"
-	}
-}
-
-func (drm *DentryResolutionModeValue) Set(val string) error {
-	switch val {
-	case "fragments":
-		*drm.mode = model.DentryResolutionFragments
-	case "single_fragment":
-		*drm.mode = model.DentryResolutionSingleFragment
-	case "perf_buffer":
-		*drm.mode = model.DentryResolutionPerfBuffer
-	default:
-		return fmt.Errorf("unknown dentry resolution mode: %v", val)
-	}
-	return nil
-}
-
-func (drm *DentryResolutionModeValue) Type() string {
 	return "string"
 }

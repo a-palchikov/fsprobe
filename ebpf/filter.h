@@ -19,7 +19,9 @@ limitations under the License.
 #define FILTER_SRC     1 << 1
 #define FILTER_TARGET  1 << 2
 
-__attribute__((always_inline)) static int filter_src(struct dentry_cache_t *data_cache)
+// Returns 1 if there is a match for the given source (or its parent) inode.
+// Returns 0 if no match found
+__attribute__((always_inline)) static int match_src(struct dentry_cache_t *data_cache)
 {
     // Look for the inode in the cached_inodes map
     if (bpf_map_lookup_elem(&inodes_filter, &data_cache->fs_event.src_inode) == NULL) {
@@ -34,7 +36,9 @@ __attribute__((always_inline)) static int filter_src(struct dentry_cache_t *data
     return 1;
 }
 
-__attribute__((always_inline)) static int filter_target(struct dentry_cache_t *data_cache)
+// Returns 1 if there is a match for the given target (or its parent) inode.
+// Returns 0 if no match found
+__attribute__((always_inline)) static int match_target(struct dentry_cache_t *data_cache)
 {
     // Look for the inode in the cached_inodes map
     if (bpf_map_lookup_elem(&inodes_filter, &data_cache->fs_event.target_inode) == NULL) {
@@ -49,19 +53,24 @@ __attribute__((always_inline)) static int filter_target(struct dentry_cache_t *d
     return 1;
 }
 
-__attribute__((always_inline)) static int filter(struct dentry_cache_t *data_cache, u8 flag)
+// Returns 1 if there's a match for the inode given with data_cache.
+// flag defines which side (source or target) to test.
+// If the filtering mode is off or there is a match, returns 1.
+// Returns 0 if no match found
+__attribute__((always_inline)) static int match(struct dentry_cache_t *data_cache, u8 flag)
 {
     u64 inode_filtering_mode = load_inode_filtering_mode();
     if (inode_filtering_mode == 0) {
+        // Always matches
         return 1;
     }
     if ((flag & FILTER_SRC) == FILTER_SRC) {
-        if (!filter_src(data_cache)) {
+        if (!match_src(data_cache)) {
             return 0;
         }
     }
     if ((flag & FILTER_TARGET) == FILTER_TARGET) {
-        if (!filter_target(data_cache)) {
+        if (!match_target(data_cache)) {
             return 0;
         }
     }

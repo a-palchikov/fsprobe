@@ -18,12 +18,10 @@ package model
 const (
 	// FragmentsMap - This map holds the cache of resolved dentries for the path fragments method
 	PathFragmentsMap = "path_fragments"
+	// PathFragmentBuilderMap - Array map used to share data between probes
+	PathFragmentBuilderMap = "path_fragment_builder"
 	// PathFragmentsSize - Size of the fragments used by the path fragments method
-	PathFragmentsSize = 256
-	// SingleFragmentSection - This map holds the cache of resolved dentries for the single fragment method
-	SingleFragmentsMap = "single_fragments"
-	// SingleFragmentSize - Size of the single fragment used by the single fragment method
-	SingleFragmentSize = 4351
+	PathFragmentsSize = 255
 	// CachedInodesMap - This map holds the list of cached inodes so that the eBPF programs know we don't need
 	// resolve them anymore. This is used by both the perf buffer method and the single fragment method.
 	CachedInodesMap = "cached_inodes"
@@ -35,8 +33,13 @@ const (
 	DentryCacheMap = "dentry_cache"
 	// DentryCacheBuilderMap - Array map used to reduce the amount of data on the stack
 	DentryCacheBuilderMap = "dentry_cache_builder"
-	// PathsBuilderMap - Array map used by the perf buffer method and the single fragment method to build paths
-	PathsBuilderMap = "paths_builder"
+	// DentryOoenCacheMap - LRU Hashmap used to cache dentry data between kprobes
+	DentryOpenCacheMap = "dentry_open_cache"
+	// DentryOpenCacheBuilderMap - Array map used to reduce the amount of data on the stack
+	DentryOpenCacheBuilderMap = "dentry_open_cache_builder"
 	// InodesFilterMap - This map is used to push inode filters in kernel space.
 	InodesFilterMap = "inodes_filter"
+
+	// SyscallsMap caches syscall data between probes
+	SyscallsMap = "syscalls"
 )

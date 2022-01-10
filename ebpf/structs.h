@@ -16,18 +16,7 @@ limitations under the License.
 #ifndef _MAPS_H_
 #define _MAPS_H_
 
-// event_type - Defines the type of file system event
-enum event_type
-{
-    EVENT_OPEN,
-    EVENT_MKDIR,
-    EVENT_LINK,
-    EVENT_RENAME,
-    EVENT_UNLINK,
-    EVENT_RMDIR,
-    EVENT_MODIFY,
-    EVENT_SETATTR,
-};
+#include "defs.h"
 
 // fs_event_t - File system event structure
 struct fs_event_t
@@ -61,10 +50,15 @@ struct bpf_map_def SEC("maps/fs_events") fs_events = {
 struct dentry_cache_t
 {
     struct fs_event_t fs_event;
+    struct path *path;
     struct inode *src_dir;
     struct dentry *src_dentry;
     struct inode *target_dir;
     struct dentry *target_dentry;
+    // pathname optionally specifies the pathname
+    // in case of failure
+    const char *pathname;
+    const char *target_pathname;
     u32 cursor;
 };
 
@@ -88,11 +82,25 @@ struct bpf_map_def SEC("maps/dentry_cache_builder") dentry_cache_builder = {
     .namespace = "",
 };
 
-// path_key_t - Structure used as the key to store path_fragment_t structures
-struct path_key_t {
-    unsigned long ino;
-    u32 mount_id;
-    u32 padding;
+// dentry_open_cache - Auxiliary map used to share dentry cache values between probes
+struct bpf_map_def SEC("maps/dentry_open_cache") dentry_open_cache = {
+    .type = BPF_MAP_TYPE_LRU_HASH,
+    .key_size = sizeof(u64),
+    .value_size = sizeof(struct dentry_cache_t),
+    .max_entries = 1000,
+    .pinning = PIN_NONE,
+    .namespace = "",
+};
+
+// dentry_open_cache_builder - Auxiliary map used to reduce the amount of data on the stack
+// between path_openat probes
+struct bpf_map_def SEC("maps/dentry_open_cache_builder") dentry_open_cache_builder = {
+    .type = BPF_MAP_TYPE_ARRAY,
+    .key_size = sizeof(u32),
+    .value_size = sizeof(struct dentry_cache_t),
+    .max_entries = 16,
+    .pinning = PIN_NONE,
+    .namespace = "",
 };
 
 // path_fragment_t - Structure used to store path leaf during the path resolution process
@@ -112,6 +120,15 @@ struct bpf_map_def SEC("maps/path_fragments") path_fragments = {
     .namespace = "",
 };
 
+struct bpf_map_def SEC("maps/path_fragment_builder") path_fragment_builder = {
+    .type = BPF_MAP_TYPE_ARRAY,
+    .key_size = sizeof(u32),
+    .value_size = sizeof(struct path_fragment_t),
+    .max_entries = 16,
+    .pinning = PIN_NONE,
+    .namespace = "",
+};
+
 // PATH_BUFFER_SIZE - Size of the eBPF buffer used to build a file system event.
 // Make sure that there is a n for which PATH_BUFFER = 2**n + NAME_MAX
 // n must be chosen so that MAX_PATH + MAX_PATH / 2 < 2**n
@@ -123,24 +140,6 @@ struct fs_event_wrapper_t {
     char buff[PATH_BUFFER_SIZE];
 };
 
-struct bpf_map_def SEC("maps/paths_builder") paths_builder = {
-    .type = BPF_MAP_TYPE_ARRAY,
-    .key_size = sizeof(u32),
-    .value_size = sizeof(struct fs_event_wrapper_t),
-    .max_entries = 40000,
-    .pinning = PIN_NONE,
-    .namespace = "",
-};
-
-struct bpf_map_def SEC("maps/cached_inodes") cached_inodes = {
-    .type = BPF_MAP_TYPE_LRU_HASH,
-    .key_size = sizeof(u32),
-    .value_size = sizeof(u8),
-    .max_entries = 40000,
-    .pinning = PIN_NONE,
-    .namespace = "",
-};
-
 struct bpf_map_def SEC("maps/inodes_filter") inodes_filter = {
     .type = BPF_MAP_TYPE_LRU_HASH,
     .key_size = sizeof(u32),
@@ -150,24 +149,10 @@ struct bpf_map_def SEC("maps/inodes_filter") inodes_filter = {
     .namespace = "",
 };
 
-// SINGLE_FRAGMENTS_SIZE - See the comment about PATH_BUFFER_SIZE. The same condition applies, however those map values
-// will only hold one path at a time. Therefore we can choose: 2**12 + NAME_MAX = 4096 + 255 = 4351
-#define SINGLE_FRAGMENTS_SIZE 4351
+#define MAX_PATH_LEN 128
 
-// single_fragment_t - Structure used to store single fragments during the path resolution process
-struct single_fragment_t
-{
-    char name[SINGLE_FRAGMENTS_SIZE];
-};
-
-// path_fragments - Map used to store path fragments. The user space program will recover the fragments from this map.
-struct bpf_map_def SEC("maps/single_fragments") single_fragments = {
-    .type = BPF_MAP_TYPE_LRU_HASH,
-    .key_size = sizeof(u32),
-    .value_size = sizeof(struct single_fragment_t),
-    .max_entries = 40000,
-    .pinning = PIN_NONE,
-    .namespace = "",
+struct basename {
+    char name[MAX_PATH_LEN];
 };
 
 #endif

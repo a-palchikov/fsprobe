@@ -20,9 +20,12 @@ limitations under the License.
 #include "mkdir.h"
 #include "modify.h"
 #include "open.h"
+#include "create.h"
 #include "rename.h"
 #include "rmdir.h"
 #include "setattr.h"
 #include "unlink.h"
+#include "filename.h"
+#include "mnt.h"
 
 #endif

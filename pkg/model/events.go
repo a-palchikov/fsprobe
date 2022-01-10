@@ -19,55 +19,93 @@ import (
 	"C"
 	"bytes"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 
 	"github.com/Gui774ume/fsprobe/pkg/utils"
 )
 
-type EventName string
+type Event uint32
 
-var (
+const (
+	EVENT_ANY Event = iota
+	EVENT_FIRST_DISCARDER
+	EVENT_OPEN = EVENT_FIRST_DISCARDER
+)
+const (
+	EVENT_MKDIR = iota + EVENT_OPEN + 1
+	EVENT_LINK
+	EVENT_RENAME
+	EVENT_UNLINK
+	EVENT_RMDIR
+
+	EVENT_CHMOD
+	EVENT_CHOWN
+	EVENT_UTIME
+	EVENT_SETXATTR
+	EVENT_REMOVEXATTR
+	EVENT_LAST_DISCARDER = EVENT_REMOVEXATTR
+)
+const (
+	EVENT_MOUNT = iota + EVENT_LAST_DISCARDER + 1
+	EVENT_UMOUNT
+	EVENT_FORK
+	EVENT_EXEC
+	EVENT_EXIT
+	EVENT_INVALIDATE_DENTRY
+	EVENT_SETUID
+	EVENT_SETGID
+	EVENT_CAPSET
+	EVENT_ARGS_ENVS
+	EVENT_MOUNT_RELEASED
+	EVENT_SELINUX
+	EVENT_BPF
+	EVENT_MAX // has to be the last one
+)
+
+const (
 	// Open - Open event
-	Open EventName = "open"
+	Open string = "open"
 	// Mkdir - Mkdir event
-	Mkdir EventName = "mkdir"
+	Mkdir string = "mkdir"
 	// Link - Soft link event
-	Link EventName = "link"
+	Link string = "link"
 	// Rename - Rename event
-	Rename EventName = "rename"
+	Rename string = "rename"
 	// SetAttr - Attribute update event
-	SetAttr EventName = "setattr"
+	SetAttr string = "setattr"
 	// Unlink - File deletion event
-	Unlink EventName = "unlink"
+	Unlink string = "unlink"
 	// Rmdir - Directory deletion event
-	Rmdir EventName = "rmdir"
+	Rmdir string = "rmdir"
 	// Modify - File modification event
-	Modify EventName = "modify"
+	Modify string = "modify"
 	// Unknown - Unknown file event
-	Unknown EventName = "unknown"
+	Unknown string = "unknown"
 )
 
 // GetEventType - Returns the event type
-func GetEventType(evtType uint32) EventName {
+func GetEventType(evtType Event) string {
 	switch evtType {
-	case 0:
+	case EVENT_OPEN:
 		return Open
-	case 1:
+	case EVENT_MKDIR:
 		return Mkdir
-	case 2:
+	case EVENT_LINK:
 		return Link
-	case 3:
+	case EVENT_RENAME:
 		return Rename
-	case 4:
+	case EVENT_UNLINK:
 		return Unlink
-	case 5:
+	case EVENT_RMDIR:
 		return Rmdir
-	case 6:
-		return Modify
-	case 7:
+	//case EVENT_MODIFY:
+	//	return Modify
+	case EVENT_SETXATTR:
 		return SetAttr
 	default:
 		return Unknown
@@ -89,95 +127,33 @@ func ParseFSEvent(data []byte, monitor *Monitor) (*FSEvent, error) {
 }
 
 // resolvePaths - Resolves the paths of the event according to the configured method
-func resolvePaths(data []byte, evt *FSEvent, monitor *Monitor, read int) error {
-	var err error
-	switch monitor.Options.DentryResolutionMode {
-	case DentryResolutionFragments:
-		inode := evt.SrcInode
-		if evt.SrcPathnameKey != 0 {
-			inode = uint64(evt.SrcPathnameKey)
-		}
-		evt.SrcFilename, err = monitor.DentryResolver.ResolveInode(evt.SrcMountID, inode)
+func resolvePaths(data []byte, evt *FSEvent, monitor *Monitor, read int) (err error) {
+	logger := logrus.WithFields(logrus.Fields{
+		"type": evt.EventType,
+		"comm": evt.Comm,
+	})
+	key := evt.SrcPathKey()
+	if key.IsNull() {
+		logger.Debug("Invalid mountID/inode tuple.")
+		return nil
+	}
+	evt.SrcFilename, err = monitor.DentryResolver.ResolveInode(key)
+	if err != nil {
+		return errors.Wrap(err, "failed to resolve src dentry path")
+	}
+	switch evt.EventType {
+	case Link, Rename:
+		targetKey := evt.TargetPathKey()
+		evt.TargetFilename, err = monitor.DentryResolver.ResolveInode(targetKey)
 		if err != nil {
-			return errors.Wrap(err, "failed to resolve src dentry path")
-		}
-		switch evt.EventType {
-		case Link, Rename:
-			evt.TargetFilename, err = monitor.DentryResolver.ResolveInode(evt.TargetMountID, evt.TargetInode)
-			if err != nil {
-				return errors.Wrap(err, "failed to resolve target dentry path")
-			}
+			return errors.Wrap(err, "failed to resolve target dentry path")
 		}
 		if evt.EventType == Link {
 			// Remove cache entry for link events
-			_ = monitor.DentryResolver.RemoveInode(evt.TargetMountID, evt.TargetInode)
-			_ = monitor.DentryResolver.RemoveInode(evt.TargetMountID, evt.TargetInode)
+			_ = monitor.DentryResolver.RemoveInode(targetKey)
+			// TODO(dima): why double delete?
+			//_ = monitor.DentryResolver.RemoveInode(evt.TargetMountID, evt.TargetInode)
 		}
-		break
-	case DentryResolutionSingleFragment:
-		evt.SrcFilename, err = monitor.DentryResolver.ResolveKey(evt.SrcPathnameKey, evt.SrcPathnameLength)
-		if err != nil {
-			return errors.Wrap(err, "failed to resolve src dentry path")
-		}
-		switch evt.EventType {
-		case Link, Rename:
-			evt.TargetFilename, err = monitor.DentryResolver.ResolveKey(evt.TargetPathnameKey, evt.TargetPathnameLength)
-			if err != nil {
-				return errors.Wrap(err, "failed to resolve target dentry path")
-			}
-		}
-		if evt.EventType == Link {
-			// Remove cache entry for link events
-			_ = monitor.DentryResolver.RemoveEntry(evt.SrcPathnameKey)
-			_ = monitor.DentryResolver.RemoveEntry(evt.TargetPathnameKey)
-		}
-		break
-	case DentryResolutionPerfBuffer:
-		// Decode path from perf buffer when needed
-		srcEnd := read
-		if evt.SrcPathnameLength > 0 {
-			srcEnd += int(evt.SrcPathnameLength)
-			evt.SrcFilename = decodePath(data[read:srcEnd])
-		}
-		// Resolve end of path from cache when needed
-		if evt.SrcPathnameKey > 0 {
-			prefix, err := monitor.DentryResolver.ResolveKey(evt.SrcPathnameKey, 0)
-			if err != nil {
-				return errors.Wrap(err, "failed to resolve src dentry path")
-			}
-			evt.SrcFilename = prefix + evt.SrcFilename
-		}
-		// Cache resolved path when needed
-		if evt.SrcPathnameLength > 0 && evt.EventType != Link {
-			err = monitor.DentryResolver.AddCacheEntry(uint32(evt.SrcInode), evt.SrcFilename)
-			if err != nil {
-				return errors.Wrap(err, "failed to add src cached inode")
-			}
-		}
-		switch evt.EventType {
-		case Link, Rename:
-			// Decode path from perf buffer when needed
-			if evt.TargetPathnameLength > 0 {
-				targetEnd := srcEnd + int(evt.TargetPathnameLength)
-				evt.TargetFilename = decodePath(data[srcEnd:targetEnd])
-			}
-			// Resolve end of path from cache when needed
-			if evt.TargetPathnameKey > 0 {
-				prefix, err := monitor.DentryResolver.ResolveKey(evt.TargetPathnameKey, 0)
-				if err != nil {
-					return errors.Wrap(err, "failed to resolve target dentry path")
-				}
-				evt.TargetFilename = prefix + evt.TargetFilename
-			}
-			// Cache resolved path when needed
-			if evt.TargetPathnameLength > 0 && evt.EventType != Link {
-				err = monitor.DentryResolver.AddCacheEntry(uint32(evt.TargetInode), evt.TargetFilename)
-				if err != nil {
-					return errors.Wrap(err, "failed to add target cached inode")
-				}
-			}
-		}
-		break
 	}
 	return nil
 }
@@ -239,7 +215,11 @@ type FSEvent struct {
 	TargetFilename       string    `json:"target_filename,omitempty"`
 	TargetMountID        uint32    `json:"target_mount_id,omitempty"`
 	Retval               int32     `json:"retval"`
-	EventType            EventName `json:"event_type"`
+	EventType            string    `json:"event_type"`
+}
+
+func (e FSEvent) IsSuccess() bool {
+	return e.Retval == 0
 }
 
 func (e *FSEvent) UnmarshalBinary(data []byte, bootTime time.Time) (int, error) {
@@ -265,7 +245,7 @@ func (e *FSEvent) UnmarshalBinary(data []byte, bootTime time.Time) (int, error) 
 	e.TargetPathnameLength = utils.ByteOrder.Uint32(data[80:84])
 	e.TargetMountID = utils.ByteOrder.Uint32(data[84:88])
 	e.Retval = int32(utils.ByteOrder.Uint32(data[88:92]))
-	e.EventType = GetEventType(utils.ByteOrder.Uint32(data[92:96]))
+	e.EventType = GetEventType(Event(utils.ByteOrder.Uint32(data[92:96])))
 	return 96, nil
 }
 
@@ -291,10 +271,46 @@ func (fs *FSEvent) PrintMode() string {
 func (fs *FSEvent) PrintFlags() string {
 	switch fs.EventType {
 	case Open:
-		return strings.Join(OpenFlagsToStrings(fs.Flags), ",")
+		return strings.Join(OpenFlag(fs.Flags).Strings(), "|")
 	case SetAttr:
 		return strings.Join(SetAttrFlagsToString(fs.Flags), ",")
 	default:
 		return fmt.Sprintf("%v", fs.Flags)
 	}
+}
+
+func (fs FSEvent) PrintInode() string {
+	var inode uint64
+	switch fs.EventType {
+	case Link, Rename:
+		inode = fs.TargetInode
+		if fs.TargetPathnameKey != 0 {
+			inode = uint64(fs.TargetPathnameKey)
+		}
+	default:
+		inode = fs.SrcInode
+		if fs.SrcPathnameKey != 0 {
+			inode = uint64(fs.SrcPathnameKey)
+		}
+	}
+	if IsFakeInode(inode) {
+		return fmt.Sprint("*", strconv.FormatUint(inode&((1<<32)-1), 10))
+	}
+	return strconv.FormatUint(inode, 10)
+}
+
+func (fs FSEvent) SrcPathKey() PathFragmentsKey {
+	inode := fs.SrcInode
+	if fs.SrcPathnameKey != 0 {
+		inode = uint64(fs.SrcPathnameKey)
+	}
+	return NewPathKey(inode, fs.SrcMountID)
+}
+
+func (fs FSEvent) TargetPathKey() PathFragmentsKey {
+	inode := fs.TargetInode
+	if fs.TargetPathnameKey != 0 {
+		inode = uint64(fs.TargetPathnameKey)
+	}
+	return NewPathKey(inode, fs.TargetMountID)
 }

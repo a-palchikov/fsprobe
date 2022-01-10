@@ -17,25 +17,27 @@ package model
 
 import (
 	"fmt"
-	"github.com/Gui774ume/fsprobe/pkg/utils"
 	"sync"
 
 	"github.com/Gui774ume/ebpf"
-	"github.com/sirupsen/logrus"
+	"github.com/Gui774ume/fsprobe/pkg/utils"
 )
 
 // Monitor - Base monitor
 type Monitor struct {
-	wg                 *sync.WaitGroup
-	collection         *ebpf.Collection
-	ResolutionModeMaps map[DentryResolutionMode][]string
-	DentryResolver     DentryResolver
+	ResolutionModeMaps []string
+	DentryResolver     *PathFragmentsResolver
 	FSProbe            FSProbe
 	InodeFilterSection string
 	Name               string
-	Options            *FSProbeOptions
-	Probes             map[EventName][]*Probe
+	Options            FSProbeOptions
+	Probes             map[string][]*Probe
 	PerfMaps           []*PerfMap
+
+	wg         *sync.WaitGroup
+	collection *ebpf.Collection
+	// mounts maps mountID -> mount info
+	mounts map[int]utils.MountInfo
 }
 
 // Configure - Configures the probes using the provided options
@@ -48,6 +50,9 @@ func (m *Monitor) Configure() {
 			}
 			for _, p := range probes {
 				p.Enabled = true
+				for _, d := range p.DependsOn {
+					d.Enabled = true
+				}
 			}
 		}
 	} else {
@@ -59,11 +64,14 @@ func (m *Monitor) Configure() {
 			}
 			for _, p := range probes {
 				p.Enabled = true
+				for _, d := range p.DependsOn {
+					d.Enabled = true
+				}
 			}
 		}
 	}
 	// Setup dentry resolver
-	m.DentryResolver, _ = NewDentryResolver(m)
+	m.DentryResolver, _ = NewPathFragmentsResolver(m)
 }
 
 // GetName - Returns the name of the monitor
@@ -93,63 +101,18 @@ func (m *Monitor) Init(fs FSProbe) error {
 	}
 	// Prepare perf maps
 	for _, pm := range m.PerfMaps {
-		if err := pm.Init(m); err != nil {
+		if err := pm.Init(m, fs.GetOptions().DataHandler); err != nil {
 			return err
-		}
-	}
-	return nil
-}
-
-// Start - Starts the monitor
-func (m *Monitor) Start() error {
-	// start probes
-	for _, probes := range m.Probes {
-		for _, p := range probes {
-			if err := p.Start(); err != nil {
-				logrus.Errorf("couldn't start probe \"%s\": %v", p.Name, err)
-				return err
-			}
-		}
-	}
-	// start polling perf maps
-	for _, pm := range m.PerfMaps {
-		if err := pm.pollStart(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// Stop - Stops the monitor
-func (m *Monitor) Stop() error {
-	// Stop probes
-	for _, probes := range m.Probes {
-		for _, p := range probes {
-			if err := p.Stop(); err != nil {
-				logrus.Errorf("couldn't stop probe \"%s\": %v", p.Name, err)
-			}
-		}
-	}
-	// stop polling perf maps
-	for _, pm := range m.PerfMaps {
-		if err := pm.pollStop(); err != nil {
-			logrus.Errorf("couldn't close perf map %v gracefully: %v", pm.PerfOutputMapName, err)
 		}
 	}
 	return nil
 }
 
 func (m *Monitor) AddInodeFilter(inode uint32, path string) error {
-	// Add file in caches
-	if m.DentryResolver != nil {
-		if err := m.DentryResolver.AddCacheEntry(inode, path); err != nil {
-			return err
-		}
-	}
 	// Add inode filter
 	filter := m.GetMap(m.InodeFilterSection)
 	if filter == nil {
-		return fmt.Errorf("couldn't find %v map", m.InodeFilterSection)
+		return fmt.Errorf("invalid map %s", m.InodeFilterSection)
 	}
 	keyB := make([]byte, 4)
 	utils.ByteOrder.PutUint32(keyB, inode)

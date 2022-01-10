@@ -13,18 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-package model
+#include "main.h"
 
-import (
-	"sync"
-	"time"
-
-	"github.com/Gui774ume/ebpf"
-)
-
-type FSProbe interface {
-	GetWaitGroup() *sync.WaitGroup
-	GetOptions() FSProbeOptions
-	GetCollection() *ebpf.Collection
-	GetBootTime() time.Time
-}
+char _license[] SEC("license") = "GPL";
+__u32 _version SEC("version") = 0xFFFFFFFE;

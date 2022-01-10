@@ -13,16 +13,20 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-#ifndef _MKDIR_H_
-#define _MKDIR_H_
+#ifndef _MODIFY_H_
+#define _MODIFY_H_
 
-// trace_mkdir - Traces a file system mkdir event.
+/*
+// trace_modify - Traces a file modification event.
 // @ctx: registers context
-// @dir: pointer to the inode of the containing directory
-// @dentry: pointer to the dentry structure of the new directory
-// @mode: mode of the mkdir call
-__attribute__((always_inline)) static int trace_mkdir(struct pt_regs *ctx, struct inode *dir, struct dentry *dentry, umode_t mode)
+// @dentry: pointer to the dentry of the file
+__attribute__((always_inline)) static int trace_modify(struct pt_regs *ctx, struct dentry *dentry, __u32 mask)
 {
+    // We only care about file modification (id est FS_MODIFY)
+    if (mask != 2)
+    {
+        return 0;
+    }
     u32 cpu = bpf_get_smp_processor_id();
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache_builder, &cpu);
     if (!data_cache)
@@ -34,19 +38,19 @@ __attribute__((always_inline)) static int trace_mkdir(struct pt_regs *ctx, struc
     // Add process data
     u64 key = fill_process_data(&data_cache->fs_event.process_data);
     // Probe type
-    data_cache->fs_event.event = EVENT_MKDIR;
+    data_cache->fs_event.event = EVENT_MODIFY;
 
-    // Add mode
-    data_cache->fs_event.mode = (int)mode;
-
-    // Mount ID
-    data_cache->fs_event.src_mount_id = get_inode_mount_id(dir);
+    // Add inode data
+    data_cache->fs_event.src_inode = get_dentry_ino(dentry);
+    // Add mount ID
+    struct inode *inode = get_dentry_inode(dentry);
+    data_cache->fs_event.src_mount_id = get_inode_mount_id(inode);
 
     // Dentry data
     data_cache->src_dentry = dentry;
 
     // Filter
-    if (!filter(data_cache, FILTER_SRC))
+    if (!match(data_cache, FILTER_SRC))
         return 0;
 
     // Send to cache
@@ -54,9 +58,9 @@ __attribute__((always_inline)) static int trace_mkdir(struct pt_regs *ctx, struc
     return 0;
 }
 
-// trace_mkdir_ret - Traces the return of a file system mkdir event.
+// trace_modify_ret - Traces the return of a file modification event.
 // @ctx: registers context
-__attribute__((always_inline)) static int trace_mkdir_ret(struct pt_regs *ctx)
+__attribute__((always_inline)) static int trace_modify_ret(struct pt_regs *ctx)
 {
     u64 key = bpf_get_current_pid_tgid();
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache, &key);
@@ -64,21 +68,25 @@ __attribute__((always_inline)) static int trace_mkdir_ret(struct pt_regs *ctx)
         return 0;
     data_cache->fs_event.retval = PT_REGS_RC(ctx);
 
-    // Add inode data
-    data_cache->fs_event.src_inode = get_dentry_ino(data_cache->src_dentry);
-
     // Resolve paths
     resolve_paths(ctx, data_cache, RESOLVE_SRC | EMIT_EVENT);
-
-    // Check recursive mode and insert inode if necessary
-    u64 recursive = load_recursive_mode();
-    if (recursive) {
-        u8 value = 0;
-        bpf_map_update_elem(&inodes_filter, &data_cache->fs_event.src_inode, &value, BPF_ANY);
-    }
-
     bpf_map_delete_elem(&dentry_cache, &key);
     return 0;
 }
+*/
+
+//SEC("kprobe/__fsnotify_parent")
+//int kprobe_fsnotify_parent(struct pt_regs *ctx)
+//{
+//    struct dentry *dentry = (struct dentry *)PT_REGS_PARM2(ctx);
+//    __u32 mask = (__u32)PT_REGS_PARM3(ctx);
+//    return trace_modify(ctx, dentry, mask);
+//}
+//
+//SEC("kretprobe/__fsnotify_parent")
+//int kretprobe_fsnotify_parent(struct pt_regs *ctx)
+//{
+//    return trace_modify_ret(ctx);
+//}
 
 #endif

@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+
+. $(dirname $0)/util
+set -eu
+
+CURRENT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -P )"
+
+: ${TARGET=releaser}
+: ${OUTPUTDIR=./_build}
+: ${OUTPUT_FORMAT="type=local,dest=${OUTPUTDIR}"}
+: ${DOCKERFILE_PATH="${CURRENT_DIR}/Dockerfile"}
+: ${DOCKERCONTEXT_PATH="${CURRENT_DIR}/../.."}
+
+if [ -n "${BUILDKIT_HOST}" ] && buildctl --version >/dev/null 2>&1; then
+  targetFlags=""
+  if [ -n "${TARGET}" ]; then
+    targetFlags="--opt target=${TARGET}"
+  fi
+  buildctlCmd build \
+      ${targetFlags} \
+      --frontend=dockerfile.v0 \
+      --local context="${DOCKERCONTEXT_PATH}" \
+      --local dockerfile="${DOCKERFILE_PATH}" \
+      --output="${OUTPUT_FORMAT}" \
+      "$@"
+else
+  targetFlags=""
+  if [ -n "${TARGET}" ]; then
+    targetFlags="--target ${TARGET}"
+  fi
+  buildxCmd build \
+    ${targetFlags} \
+    --output="${OUTPUT_FORMAT}" \
+    "$@" \
+    -f "${DOCKERFILE_PATH}" \
+    "${DOCKERCONTEXT_PATH}"
+fi

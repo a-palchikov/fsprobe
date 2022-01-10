@@ -16,12 +16,14 @@ limitations under the License.
 package cmd
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/Gui774ume/fsprobe/pkg/utils"
+	"github.com/Gui774ume/fsprobe/version"
 )
 
 // FSProbeCmd represents the base command when called without any subcommands
@@ -33,8 +35,9 @@ var FSProbeCmd = &cobra.Command{
 FSProbe relies on eBPF to capture file system events on dentry kernel structures.
 More information about the project can be found on github: https://github.com/Gui774ume/fsprobe`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if options.Verbose {
-			logrus.SetLevel(logrus.DebugLevel)
+		initLogging()
+		if options.Version {
+			return printVersion()
 		}
 		if err := runFSProbeCmd(cmd, args); err != nil {
 			utils.DebugReport(os.Stderr, err)
@@ -124,4 +127,20 @@ stdout`)
 		"v",
 		false,
 		`Increase logging verbosity`)
+	FSProbeCmd.Flags().BoolVarP(
+		&options.Version,
+		"version",
+		"",
+		false,
+		`Output version information and exit`)
+}
+
+func printVersion() error {
+	v := version.Get()
+	bytes, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	fmt.Fprint(os.Stdout, string(bytes))
+	return nil
 }

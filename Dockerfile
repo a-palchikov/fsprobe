@@ -18,6 +18,7 @@ RUN set -ex && \
     /tmp/llvm.sh ${CLANG_VER} && \
     rm /tmp/llvm.sh
 
+ARG BUILD_LFLAGS
 FROM builder AS go-builder
 WORKDIR /go/src/github.com/Gui774ume/fsprobe
 COPY . .
@@ -26,7 +27,8 @@ RUN --mount=target=/root/.cache,type=cache \
     set -ex && \
     make build \
         OUTPUT=/output \
-        BUILDDIR=/_build
+        BUILDDIR=/_build \
+	BUILD_LFLAGS="${BUILD_LFLAGS} -X 'github.com/Gui774ume/fsprobe/version.BuildGoVersion=$(go env GOVERSION)'"
 
 FROM go-builder AS shell
 RUN DEBIAN_FRONTEND=noninteractive && \

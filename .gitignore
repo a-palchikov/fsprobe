@@ -4,3 +4,4 @@ bin/
 vendor/
 tmp/
 _build/
+*.sw*

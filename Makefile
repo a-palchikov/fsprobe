@@ -10,12 +10,26 @@ DOCKER ?= docker
 CLANG_VER ?= 13
 KERNEL_ARCH := amd64
 KERNEL_VER ?= 4.19.0-18-$(KERNEL_ARCH)
+
+BUILD_LFLAGS ?=
+BUILD_GO_VERSION ?= $(shell go version)
+
+ifeq ($(BUILD_LFLAGS),)
+BUILD_TIME = $(shell date -u --rfc-3339=seconds)
+BUILD_BRANCH = $(shell git rev-parse --abbrev-ref HEAD)
+BUILD_COMMIT = $(shell git rev-parse HEAD | cut -c1-12)
+BUILD_LFLAGS = -X 'github.com/Gui774ume/fsprobe/version.BuildTime=$(BUILD_TIME)' \
+  -X 'github.com/Gui774ume/fsprobe/version.BuildGitCommit=$(BUILD_COMMIT)' \
+  -X 'github.com/Gui774ume/fsprobe/version.BuildGitBranch=$(BUILD_BRANCH)'
+endif
+
 CLANG ?= $(shell command -v clang 2>/dev/null || echo clang-$(CLANG_VER))
 CLANG_FORMAT ?= $(shell command -v clang-format 2>/dev/null || echo clang-format-$(CLANG_VER))
 LLVM_STRIP ?= $(shell command -v llvm-strip 2>/dev/null || echo llvm-strip-$(CLANG_VER))
 DOCKER_BUILD_ARGS := \
 	--build-arg=CLANG_VER=$(CLANG_VER) \
-	--build-arg=KERNEL_VER=$(KERNEL_VER)
+	--build-arg=KERNEL_VER=$(KERNEL_VER) \
+	--build-arg=BUILD_LFLAGS="$(BUILD_LFLAGS)"
 INCLUDES := -I/lib/modules/$(KERNEL_VER)/build/include \
 	-I/lib/modules/$(KERNEL_VER)/build/include/uapi \
 	-I/lib/modules/$(KERNEL_VER)/build/include/generated/uapi \
@@ -39,10 +53,12 @@ build: $(BPF_BUILDDIR)/probe.o | $(BUILDDIR)
 		CGO_CFLAGS=$(CGO_CFLAGS_STATIC) \
 		CGO_LDFLAGS=$(CGO_LDFLAGS_STATIC) \
 		GOOS=linux GOARCH=$(ARCH) \
-	$(GO) build -o $(BUILDDIR) ./cmd/...
+	$(GO) build -o $(BUILDDIR) \
+		-ldflags "$(BUILD_LFLAGS)" \
+		./cmd/...
 
 .PHONY: shell
-shell: 
+shell:
 	@TARGET=shell OUTPUT_FORMAT="type=docker,name=build-shell:v1" \
 	       hack/build \
 		$(DOCKER_BUILD_ARGS)

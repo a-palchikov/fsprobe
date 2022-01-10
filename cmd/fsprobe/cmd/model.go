@@ -21,6 +21,7 @@ import "github.com/Gui774ume/fsprobe/pkg/model"
 type CLIOptions struct {
 	Format         string
 	Verbose        bool
+	Version        bool
 	OutputFilePath string
 	FSOptions      model.FSProbeOptions
 }

@@ -35,8 +35,6 @@ func runFSProbeCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	initLogging()
-
 	// 1) Prepare events output handler
 	output, err := NewOutput(options)
 	if err != nil {

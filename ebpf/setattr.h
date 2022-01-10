@@ -31,7 +31,7 @@ __attribute__((always_inline)) static int trace_setattr(struct pt_regs *ctx, str
     data_cache->fs_event.target_path_key = 0;
     data_cache->cursor = 0;
     // Probe type
-    data_cache->fs_event.event = EVENT_SETATTR;
+    data_cache->fs_event.event = EVENT_SETXATTR;
 
     // Process data
     u64 key = fill_process_data(&data_cache->fs_event.process_data);
@@ -50,7 +50,7 @@ __attribute__((always_inline)) static int trace_setattr(struct pt_regs *ctx, str
     data_cache->src_dentry = dentry;
 
     // Filter
-    if (!filter(data_cache, FILTER_SRC))
+    if (!match(data_cache, FILTER_SRC))
         return 0;
 
     // Send to cache
@@ -72,6 +72,20 @@ __attribute__((always_inline)) static int trace_setattr_ret(struct pt_regs *ctx)
     resolve_paths(ctx, data_cache, RESOLVE_SRC | EMIT_EVENT);
     bpf_map_delete_elem(&dentry_cache, &key);
     return 0;
+}
+
+SEC("kprobe/security_inode_setattr")
+int kprobe_security_inode_setattr(struct pt_regs *ctx)
+{
+    struct dentry *dentry = (struct dentry *)PT_REGS_PARM1(ctx);
+    struct iattr *attr = (struct iattr *)PT_REGS_PARM2(ctx);
+    return trace_setattr(ctx, dentry, attr);
+}
+
+SEC("kretprobe/security_inode_setattr")
+int kretprobe_security_inode_setattr(struct pt_regs *ctx)
+{
+    return trace_setattr_ret(ctx);
 }
 
 #endif

@@ -16,15 +16,17 @@ limitations under the License.
 package cmd
 
 import (
-	"errors"
-	"fmt"
 	"os"
 	"os/signal"
+	"syscall"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/Gui774ume/fsprobe/pkg/fsprobe"
+	"github.com/Gui774ume/fsprobe/pkg/fsprobe/monitor/fs"
+	"github.com/Gui774ume/fsprobe/pkg/utils"
 )
 
 func runFSProbeCmd(cmd *cobra.Command, args []string) error {
@@ -36,19 +38,28 @@ func runFSProbeCmd(cmd *cobra.Command, args []string) error {
 	// 1) Prepare events output handler
 	output, err := NewOutput(options)
 	if err != nil {
-		logrus.Fatalf("couldn't create FSEvent output: %v", err)
+		return errors.Wrap(err, "failed to create FSEvent output")
 	}
 
 	// 2) Set the output channel to FSProbe's output channel
 	options.FSOptions.EventChan = output.EvtChan
 	options.FSOptions.LostChan = output.LostChan
 
+	options.FSOptions.Mounts, err = readProcSelfMountinfoAsMap()
+	if err != nil {
+		return errors.Wrap(err, "failed to read mountinfo")
+	}
+	options.FSOptions.DataHandler, err = fs.NewFSEventHandler(args, options.FSOptions.Paths, options.FSOptions.Mounts)
+	if err != nil {
+		return errors.Wrap(err, "failed to create FS event handler")
+	}
+
 	// 3) Instantiates FSProbe
 	probe := fsprobe.NewFSProbeWithOptions(options.FSOptions)
 
 	// 4) Start listening for events
 	if err := probe.Watch(args...); err != nil {
-		logrus.Fatalf("couldn't start watching the filesystem: %v", err)
+		return errors.Wrap(err, "failed to watch the filesystem")
 	}
 
 	// 5) Wait until interrupt signal
@@ -56,12 +67,25 @@ func runFSProbeCmd(cmd *cobra.Command, args []string) error {
 
 	// Stop fsprobe
 	if err := probe.Stop(); err != nil {
-		logrus.Fatalf("couldn't gracefully shutdown fsprobe: %v", err)
+		return errors.Wrap(err, "failed to gracefully shutdown fsprobe")
 	}
 
 	// Close the output
 	output.Close()
 	return nil
+}
+
+func initLogging() {
+	logrus.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp:          true,
+		TimestampFormat:        "2006-01-02T15:04:05Z",
+		DisableLevelTruncation: true,
+	})
+	logrus.SetOutput(os.Stdout)
+	logrus.SetLevel(logrus.InfoLevel)
+	if options.Verbose {
+		logrus.SetLevel(logrus.DebugLevel)
+	}
 }
 
 // sanitizeOptions - Sanitizes the provided options
@@ -72,13 +96,27 @@ func sanitizeOptions(args []string) error {
 	if len(args) > 0 {
 		options.FSOptions.PathsFiltering = true
 	}
+	if len(options.FSOptions.Paths) > 0 {
+		options.FSOptions.Recursive = false
+	}
 	return nil
 }
 
-// wait - Waits until an interrupt or kill signal is sent
+// wait - Waits until an interrupt or terminate signal is sent
 func wait() {
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, os.Kill)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	<-sig
-	fmt.Println()
+}
+
+func readProcSelfMountinfoAsMap() (result map[int]utils.MountInfo, err error) {
+	mounts, err := utils.ReadProcSelfMountinfo()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to read mounts")
+	}
+	result = make(map[int]utils.MountInfo, len(mounts))
+	for _, mi := range mounts {
+		result[mi.MountID] = mi
+	}
+	return result, nil
 }

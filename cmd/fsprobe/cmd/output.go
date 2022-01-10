@@ -19,10 +19,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"io"
 	"os"
 	"sync"
+
+	"github.com/sirupsen/logrus"
 
 	"github.com/Gui774ume/fsprobe/pkg/model"
 )
@@ -30,10 +31,11 @@ import (
 type Output struct {
 	EvtChan  chan *model.FSEvent
 	LostChan chan *model.LostEvt
-	wg       *sync.WaitGroup
-	ctx      context.Context
-	cancel   context.CancelFunc
-	writer   OutputWriter
+
+	wg     sync.WaitGroup
+	ctx    context.Context
+	cancel context.CancelFunc
+	writer OutputWriter
 }
 
 // NewOutput - Returns an output instance configured with the requested format & output
@@ -46,7 +48,6 @@ func NewOutput(options CLIOptions) (*Output, error) {
 	output := Output{
 		EvtChan:  make(chan *model.FSEvent, options.FSOptions.UserSpaceChanSize),
 		LostChan: make(chan *model.LostEvt, options.FSOptions.UserSpaceChanSize),
-		wg:       &sync.WaitGroup{},
 		ctx:      ctx,
 		cancel:   cancel,
 		writer:   writer,
@@ -57,36 +58,24 @@ func NewOutput(options CLIOptions) (*Output, error) {
 
 func (o *Output) Callback() {
 	o.wg.Add(1)
-	var evt *model.FSEvent
-	var lost *model.LostEvt
-	var ok bool
-	var count int
+	defer o.wg.Done()
 	for {
 		select {
 		case <-o.ctx.Done():
-			logrus.Printf("%v events captured", count)
-			o.wg.Done()
 			return
-		case lost, ok = <-o.LostChan:
+		case lost, ok := <-o.LostChan:
 			if !ok {
-				logrus.Printf("%v events captured", count)
-				o.wg.Done()
 				return
 			}
 			logrus.Warnf("lost %v events from %v", lost.Count, lost.Map)
-			break
-		case evt, ok = <-o.EvtChan:
+		case evt, ok := <-o.EvtChan:
 			if !ok {
-				logrus.Printf("%v events captured", count)
-				o.wg.Done()
 				return
 			}
-			count++
 			// Handle event
 			if err := o.writer.Write(evt); err != nil {
-				logrus.Errorf("couldn't write event to output: %v", err)
+				logrus.WithError(err).Error("Failed to write event to output.")
 			}
-			break
 		}
 	}
 }
@@ -97,6 +86,7 @@ func (o *Output) Start() {
 
 func (o *Output) Close() {
 	o.cancel()
+	// TODO(dima): these should be closed on the sender's side
 	close(o.EvtChan)
 	close(o.LostChan)
 	o.wg.Wait()
@@ -173,12 +163,12 @@ func (to TableOutput) Write(event *model.FSEvent) error {
 		event.UID,
 		event.GID,
 		event.Comm,
-		event.SrcInode,
+		event.PrintInode(),
 		event.SrcMountID,
-		model.ErrValueToString(event.Retval),
 		event.PrintMode(),
 		event.PrintFlags(),
 		event.PrintFilenames(),
+		model.ErrValueToString(event.Retval),
 	)
 	return nil
 }

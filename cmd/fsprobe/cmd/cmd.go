@@ -16,7 +16,14 @@ limitations under the License.
 package cmd
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
+
 	"github.com/spf13/cobra"
+
+	"github.com/Gui774ume/fsprobe/pkg/utils"
+	"github.com/Gui774ume/fsprobe/version"
 )
 
 // FSProbeCmd represents the base command when called without any subcommands
@@ -27,19 +34,34 @@ var FSProbeCmd = &cobra.Command{
 
 FSProbe relies on eBPF to capture file system events on dentry kernel structures.
 More information about the project can be found on github: https://github.com/Gui774ume/fsprobe`,
-	RunE:    runFSProbeCmd,
-	Example: "sudo fsprobe /tmp",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		initLogging()
+		if options.Version {
+			return printVersion()
+		}
+		if err := runFSProbeCmd(cmd, args); err != nil {
+			utils.DebugReport(os.Stderr, err)
+			return err
+		}
+		return nil
+	},
+	SilenceUsage: true,
+	Example:      "sudo fsprobe /tmp",
 }
 
 // options - CLI options
 var options CLIOptions
 
 func init() {
-	FSProbeCmd.Flags().Var(
-		NewDentryResolutionModeValue(&options.FSOptions.DentryResolutionMode),
-		"dentry-resolution-mode",
-		`In-kernel dentry resolution mode. Can be either "fragments",
-"single_fragment" or "perf_buffer"`)
+	FSProbeCmd.Flags().StringSliceVar(
+		&options.FSOptions.Paths,
+		"path-filter",
+		nil,
+		`When specified, only event hits along this path will be generated.
+For each path filter, only top-level watches along the filter are added.
+If a filter specifies a file, in the file's directory only the file
+will be watched (along with all files in all preceeding sub-directories).
+Filter can specify a path that does not yet exist`)
 	FSProbeCmd.Flags().BoolVarP(
 		&options.FSOptions.Recursive,
 		"recursive",
@@ -99,4 +121,26 @@ Options are: table, json, none`)
 		"",
 		`Outputs events to the provided file rather than
 stdout`)
+	FSProbeCmd.Flags().BoolVarP(
+		&options.Verbose,
+		"verbose",
+		"v",
+		false,
+		`Increase logging verbosity`)
+	FSProbeCmd.Flags().BoolVarP(
+		&options.Version,
+		"version",
+		"",
+		false,
+		`Output version information and exit`)
+}
+
+func printVersion() error {
+	v := version.Get()
+	bytes, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	fmt.Fprint(os.Stdout, string(bytes))
+	return nil
 }

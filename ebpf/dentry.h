@@ -16,13 +16,99 @@ limitations under the License.
 #ifndef _DENTRY_H_
 #define _DENTRY_H_
 
+#include "defs.h"
+
 #define DENTRY_RESOLUTION_FRAGMENTS         0
 #define DENTRY_RESOLUTION_SINGLE_FRAGMENT   1
 #define DENTRY_RESOLUTION_PERF_BUFFER       2
 
 #define RESOLVE_SRC    1 << 0
 #define RESOLVE_TARGET 1 << 1
+#define RESOLVE_ALL    (RESOLVE_SRC | RESOLVE_TARGET)
 #define EMIT_EVENT     1 << 2
+
+#define MNT_OFFSETOF_MNT 32 // offsetof(struct mount, mnt)
+#define DENTRY_OFFSETOF_INODE 48 // offsetof(struct dentry, d_inode)
+
+// Marker for synthetic inodes generated for source
+// inode in a rename/link syscall and ENOENT errors during path resolution
+#define FAKE_INODE_MSW 0xdeadc001UL
+
+/*
+ * Type of the last component on LOOKUP_PARENT
+ */
+enum {LAST_NORM, LAST_ROOT, LAST_DOT, LAST_DOTDOT, LAST_BIND};
+
+//#define EMBEDDED_LEVELS 2
+struct nameidata {
+	struct path	path;
+	struct qstr	last;
+	struct path	root;
+	struct inode	*inode; /* path.dentry.d_inode */
+	unsigned int	flags;
+	unsigned	seq, m_seq;
+	int		last_type;
+    // Other fields stripped
+};
+
+u64 __attribute__((always_inline)) new_fake_inode() {
+    return FAKE_INODE_MSW<<32 | bpf_get_prandom_u32();
+}
+
+dev_t __attribute__((always_inline)) get_sb_dev(struct super_block *sb) {
+    dev_t dev;
+    bpf_probe_read(&dev, sizeof(dev), &sb->s_dev);
+    return dev;
+}
+
+u32 __attribute__((always_inline)) get_mount_offset_of_mount_id(void) {
+    return 284;
+}
+
+int __attribute__((always_inline)) get_vfsmount_mount_id(struct vfsmount *mnt) {
+    int mount_id;
+    // bpf_probe_read(&mount_id, sizeof(mount_id), (char *)mnt + offsetof(struct mount, mnt_id) - offsetof(struct mount, mnt));
+    bpf_probe_read(&mount_id, sizeof(mount_id), (char *)mnt + get_mount_offset_of_mount_id() - MNT_OFFSETOF_MNT);
+    return mount_id;
+}
+
+struct vfsmount * __attribute__((always_inline)) get_mount_vfsmount(void *mnt) {
+    return (struct vfsmount *)(mnt + 32);
+}
+
+//dev_t __attribute__((always_inline)) get_vfsmount_dev(struct vfsmount *mnt) {
+//    return get_sb_dev(get_vfsmount_sb(mnt));
+//}
+//
+//dev_t __attribute__((always_inline)) get_mount_dev(void *mnt) {
+//    return get_vfsmount_dev(get_mount_vfsmount(mnt));
+//}
+
+struct dentry* __attribute__((always_inline)) get_path_dentry(struct path *path) {
+    struct dentry *dentry;
+    bpf_probe_read(&dentry, sizeof(dentry), &path->dentry);
+    return dentry;
+}
+
+unsigned long get_dentry_ino(struct dentry *dentry);
+
+unsigned long __attribute__((always_inline)) get_path_dentry_ino(struct path *path) {
+    struct dentry *dentry;
+    bpf_probe_read(&dentry, sizeof(dentry), &path->dentry);
+    return get_dentry_ino(dentry);
+}
+
+int __attribute__((always_inline)) get_path_mount_id(struct path *path) {
+    struct vfsmount *mnt;
+    bpf_probe_read(&mnt, sizeof(mnt), &path->mnt);
+    return get_vfsmount_mount_id(mnt);
+}
+
+void __attribute__((always_inline)) get_dentry_name(struct dentry *dentry, void *buffer, size_t n) {
+    struct qstr qstr;
+    bpf_probe_read(&qstr, sizeof(qstr), &dentry->d_name);
+    bpf_probe_read_str(buffer, n, (void *)qstr.name);
+}
 
 // get_inode_ino - Returns the inode number of an inode structure
 __attribute__((always_inline)) unsigned long get_inode_ino(struct inode *inode)
@@ -33,7 +119,7 @@ __attribute__((always_inline)) unsigned long get_inode_ino(struct inode *inode)
 }
 
 // write_inode_ino - Writes the inode number of an inode structure
-__attribute__((always_inline)) void write_inode_ino(struct inode *inode, long *ino)
+__attribute__((always_inline)) void write_inode_ino(struct inode *inode, u64 *ino)
 {
     bpf_probe_read(ino, sizeof(inode), &inode->i_ino);
 }
@@ -55,8 +141,8 @@ __attribute__((always_inline)) int get_inode_mount_id(struct inode *dir)
     struct list_head s_mounts;
     bpf_probe_read(&s_mounts, sizeof(s_mounts), &spb->s_mounts);
 
-    bpf_probe_read(&mount_id, sizeof(int), (void *)s_mounts.next + 172);
     // bpf_probe_read(&mount_id, sizeof(int), &((struct mount *) s_mounts.next)->mnt_id);
+    bpf_probe_read(&mount_id, sizeof(int), (char *)s_mounts.next + get_mount_offset_of_mount_id());
 
     return mount_id;
 }
@@ -103,8 +189,8 @@ __attribute__((always_inline)) struct dentry *get_inode_mountpoint(struct inode 
     struct list_head s_mounts;
     bpf_probe_read(&s_mounts, sizeof(s_mounts), &spb->s_mounts);
 
-    // bpf_probe_read(&mountpoint, sizeof(mountpoint), (void *) s_mounts.next - offsetof(struct mount, mnt_instance) + offsetof(struct mount, mnt_mountpoint));
     bpf_probe_read(&mountpoint, sizeof(mountpoint), (void *) s_mounts.next - 88);
+    // bpf_probe_read(&mountpoint, sizeof(mountpoint), (void *) s_mounts.next - offsetof(struct mount, mnt_instance) + offsetof(struct mount, mnt_mountpoint));
 
     return mountpoint;
 }
@@ -133,56 +219,14 @@ __attribute__((always_inline)) struct dentry *get_file_dentry(struct file *file)
     return f_dentry;
 }
 
-#define PATH_BUILDER_MAX_DEPTH 70
-
-// build_path - Builds the entire path of the provided dentry at the "cursor" offset in the path_builder buffer.
-// @path_builder: pointer to the fs event wrapper that contains an initialized path builder buffer
-// @cursor: pointer to the position in the buffer where the path should be written
-// @dentry: pointer to the dentry to resolve
-__attribute__((always_inline)) static u32 build_path(struct fs_event_wrapper_t *path_builder, u32 *cursor, struct dentry *dentry, u32 *last_inode)
+// get_inode_dentry - Returns the dentry relative to the provided inode
+__attribute__((always_inline)) struct dentry *get_inode_dentry(struct inode *inode)
 {
-    struct qstr qstr;
-    struct dentry *d_parent;
-    u32 copied = 0;
-    u32 path_len = 0;
-    u32 offset = 0;
-    struct inode *inode_tmp;
-
-    #pragma unroll
-    for (int i = 0; i < PATH_BUILDER_MAX_DEPTH; i++)
-    {
-        bpf_probe_read(&qstr, sizeof(qstr), &dentry->d_name);
-        bpf_probe_read(&d_parent, sizeof(d_parent), &dentry->d_parent);
-
-        // Exit if the path buffer is already full
-        if (*cursor >= (PATH_BUFFER_SIZE - 1))
-            return path_len;
-
-        // Check if we can stop resolution early
-        write_dentry_inode(dentry, &inode_tmp);
-        write_inode_short_ino(inode_tmp, last_inode);
-        if (bpf_map_lookup_elem(&cached_inodes, last_inode) != NULL) {
-            return path_len;
-        }
-
-        // Because of some code optimisation from llvm, the bounds verification fails if *cursor (or offset = *cursor) is
-        // used in the bpf_probe_read_str, expression below. To bypass this, copy the value of cursor manually.
-        bpf_probe_read(&offset, sizeof(u32), cursor);
-        //  & (PATH_BUFFER_SIZE - NAME_MAX - 1) is required by the verifier. It ensures that we will never start copying a path
-        // that could be as big as NAME_MAX at an index that is in the last NAME_MAX positions in the buffer.
-        copied = bpf_probe_read_str(&path_builder->buff[offset & (PATH_BUFFER_SIZE - NAME_MAX - 1)], NAME_MAX, (void *) qstr.name);
-        // & NAME_MAX is required by the verifier. It ensures that we will always add to the cursor a positive value,
-        // that is below NAME_MAX (the maximum theoretical value, see the previous line).
-        *cursor += (copied & NAME_MAX);
-        path_len += copied;
-        if (get_dentry_ino(dentry) == get_dentry_ino(d_parent))
-        {
-            *last_inode = 0;
-            return path_len;
-        }
-        dentry = d_parent;
-    }
-    return path_len;
+    struct dentry *dentry;
+    // bpf_probe_read(&dentry, sizeof(struct dentry*), (char *)inode - offsetof(struct dentry, d_inode));
+    // bpf_probe_read(&dentry, sizeof(struct dentry*), (char *)inode - DENTRY_OFFSETOF_INODE);
+    bpf_probe_read(&dentry, sizeof(struct dentry*), (char *)inode - offsetof(struct dentry, d_inode));
+    return dentry;
 }
 
 #define DENTRY_MAX_DEPTH 70
@@ -190,7 +234,7 @@ __attribute__((always_inline)) static u32 build_path(struct fs_event_wrapper_t *
 // resolve_dentry_fragments - Resolves a dentry into multiple fragments, one per parent of the initial dentry.
 // Each fragment is saved in a linked list inside the path_fragments hashmap.
 // @dentry: pointer to the initial dentry to resolve
-// pathname_key: first key of the fragments linked list in the path_fragment hashmap
+// @key: first key of the fragments linked list in the path_fragment hashmap
 __attribute__((always_inline)) static int resolve_dentry_fragments(struct dentry *dentry, struct path_key_t *key)
 {
     struct path_fragment_t map_value = {};
@@ -224,7 +268,6 @@ __attribute__((always_inline)) static int resolve_dentry_fragments(struct dentry
         } else {
             return i + 1;
         }
-//        bpf_map_update_elem(&path_fragments, key, &map_value, BPF_ANY);
 
         dentry = d_parent;
         if (next_key.ino == 0)
@@ -241,48 +284,49 @@ __attribute__((always_inline)) static int resolve_dentry_fragments(struct dentry
     return DENTRY_MAX_DEPTH;
 }
 
-// resolve_perf_buffer - Resolves the paths of an event using the perf buffer method. This method resolves the paths directly in the buffer
-// of the event that will be sent to user space. Therefore, the event sent back to user space has a variable size depending on the paths.
-// @ctx: pointer to the registers context structure used to send the perf event.
-// @cache: pointer to the dentry_cache_t structure that contains the source and target dentry to resolve
-// @fs_event: pointer to an fs_event structure on the stack of the eBPF program that will be used to send the perf event
-// flag: defines what dentry should be resolved.
-__attribute__((always_inline)) static u32 resolve_perf_buffer(struct pt_regs *ctx, struct dentry_cache_t *cache, u8 flag) {
-    // Prepare the paths buffer
-    struct fs_event_wrapper_t *path_builder = bpf_map_lookup_elem(&paths_builder, &cache->fs_event.process_data.tid);
-    if (!path_builder)
-        return 0;
-    u32 path_len = 0;
-    // Resolve paths
+__attribute__((always_inline)) static void embed_pathname(struct path_key_t *base_key,
+                                                          struct dentry_cache_t *cache,
+                                                          int flag) {
+    struct path_key_t key = {};
+    key.ino = new_fake_inode();
+    key.mount_id = base_key->mount_id;
+
+    u32 cpu = bpf_get_smp_processor_id();
+    struct path_fragment_t *value = bpf_map_lookup_elem(&path_fragment_builder, &cpu);
+    if (!value)
+        return;
+
+    value->parent = *base_key;
+    // Invalidate the fragment for the pathname as it is supposed to be unique
+    bpf_map_delete_elem(&path_fragments, &key);
     if ((flag & RESOLVE_SRC) == RESOLVE_SRC) {
-        path_len = build_path(path_builder, &cache->cursor, cache->src_dentry, &cache->fs_event.src_path_key);
-        cache->fs_event.src_path_length = path_len;
+        bpf_probe_read_str(&value->name, sizeof(value->name), (void *)cache->pathname);
+    } else {
+        bpf_probe_read_str(&value->name, sizeof(value->name), (void *)cache->target_pathname);
     }
-    if ((flag & RESOLVE_TARGET) == RESOLVE_TARGET) {
-        if (cache->fs_event.event == EVENT_RENAME || cache->fs_event.event == EVENT_LINK) {
-            // Make sure to resolve the new inode regardless of the cache
-            bpf_map_delete_elem(&cached_inodes, &cache->fs_event.target_inode);
-        }
-        path_len = build_path(path_builder, &cache->cursor, cache->target_dentry, &cache->fs_event.target_path_key);
-        cache->fs_event.target_path_length = path_len;
+#ifdef DEBUG
+    bpf_printk("embed_path: parent=ino:%ld/mnt_id=%d (%ld/%d).",
+               value->parent.ino, value->parent.mount_id,
+               key.ino, key.mount_id);
+#endif
+    bpf_map_update_elem(&path_fragments, &key, value, BPF_ANY);
+    // Override the path key for pathname
+    if ((flag & RESOLVE_SRC) == RESOLVE_SRC) {
+        cache->fs_event.src_inode=key.ino;
+        cache->fs_event.src_mount_id=key.mount_id;
+    } else {
+        cache->fs_event.target_inode=key.ino;
+        cache->fs_event.target_mount_id=key.mount_id;
     }
-    if ((flag & EMIT_EVENT) == EMIT_EVENT) {
-        // & (PATH_BUFFER_SIZE - NAME_MAX - 1) is required by the verifier. It ensures that we will copy more than (or equal to)
-        // 0 bytes, and at most PATH_BUFFER_SIZE - NAME_MAX - 1 < PATH_BUFFER_SIZE.
-        bpf_probe_read(&path_builder->evt, sizeof(cache->fs_event), &cache->fs_event);
-        u32 cpu = bpf_get_smp_processor_id();
-        bpf_perf_event_output(ctx, &fs_events, cpu, path_builder, sizeof(struct fs_event_t) + (cache->cursor & (PATH_BUFFER_SIZE - NAME_MAX - 1)));
-    }
-    return cache->cursor;
 }
 
-// resolve_fragments - Resolves the paths of an event using the multiple fragments method. This method creates an entry in a hashmap for each
+// resolve_paths - Resolves the paths of an event using the multiple fragments method. This method creates an entry in a hashmap for each
 // parent of the paths that need to be resolved.
 // @ctx: pointer to the registers context structure used to send the perf event.
 // @cache: pointer to the dentry_cache_t structure that contains the source and target dentry to resolve
 // @fs_event: pointer to an fs_event structure on the stack of the eBPF program that will be used to send the perf event
 // flag: defines what dentry should be resolved.
-__attribute__((always_inline)) static u32 resolve_fragments(struct pt_regs *ctx, struct dentry_cache_t *cache, u8 flag) {
+__attribute__((always_inline)) static int resolve_paths(void *ctx, struct dentry_cache_t *cache, u8 flag) {
     struct path_key_t key = {};
     if ((flag & RESOLVE_SRC) == RESOLVE_SRC) {
         if (cache->fs_event.event == EVENT_RENAME || cache->fs_event.event == EVENT_LINK) {
@@ -291,6 +335,9 @@ __attribute__((always_inline)) static u32 resolve_fragments(struct pt_regs *ctx,
             key.ino = cache->fs_event.src_inode;
         }
         key.mount_id = cache->fs_event.src_mount_id;
+        if (cache->pathname) {
+            embed_pathname(&key, cache, flag&RESOLVE_SRC);
+        }
         resolve_dentry_fragments(cache->src_dentry, &key);
     }
     if ((flag & RESOLVE_TARGET) == RESOLVE_TARGET) {
@@ -300,8 +347,12 @@ __attribute__((always_inline)) static u32 resolve_fragments(struct pt_regs *ctx,
             // Make sure to resolve the new inode regardless of the cache
             bpf_map_delete_elem(&path_fragments, &key);
         }
+        if (cache->target_pathname) {
+            embed_pathname(&key, cache, flag&RESOLVE_TARGET);
+        }
         resolve_dentry_fragments(cache->target_dentry, &key);
     }
+
     if ((flag & EMIT_EVENT) == EMIT_EVENT) {
         u32 cpu = bpf_get_smp_processor_id();
         bpf_perf_event_output(ctx, &fs_events, cpu, &cache->fs_event, sizeof(cache->fs_event));
@@ -309,76 +360,10 @@ __attribute__((always_inline)) static u32 resolve_fragments(struct pt_regs *ctx,
     return 0;
 }
 
-// resolve_single_fragment - Resolves the paths of an event using the single fragment method. This method resolves the each path in
-// one entry of the single_fragments hashmap. The key used to refer to each entry is a random number sent back to user space
-// through the fs_events perf event buffer.
-// @ctx: pointer to the registers context structure used to send the perf event.
-// @cache: pointer to the dentry_cache_t structure that contains the source and target dentry to resolve
-// @fs_event: pointer to an fs_event structure on the stack of the eBPF program that will be used to send the perf event
-// flag: defines what dentry should be resolved.
-__attribute__((always_inline)) static u32 resolve_single_fragment(struct pt_regs *ctx, struct dentry_cache_t *cache, u8 flag) {
-    // Prepare the paths buffer
-    struct fs_event_wrapper_t *path_builder = bpf_map_lookup_elem(&paths_builder, &cache->fs_event.process_data.tid);
-    if (!path_builder)
-        return 0;
-    u32 path_len = 0;
-    u32 dummy_inode = 0;
-    // Resolve paths
-    if ((flag & RESOLVE_SRC) == RESOLVE_SRC) {
-        if (cache->fs_event.event != EVENT_RENAME && cache->fs_event.event != EVENT_LINK) {
-            cache->fs_event.src_path_key = cache->fs_event.src_inode;
-        }
-        // Only resolve if necessary
-        if (bpf_map_lookup_elem(&single_fragments, &cache->fs_event.src_path_key) == NULL) {
-            path_len = build_path(path_builder, &cache->cursor, cache->src_dentry, &dummy_inode);
-            cache->fs_event.src_path_length = path_len;
-            // Save fragment
-            bpf_map_update_elem(&single_fragments, &cache->fs_event.src_path_key, path_builder->buff, BPF_ANY);
-        }
-    }
-    if ((flag & RESOLVE_TARGET) == RESOLVE_TARGET) {
-        cache->fs_event.target_path_key = cache->fs_event.target_inode;
-        if (cache->fs_event.event == EVENT_RENAME || cache->fs_event.event == EVENT_LINK) {
-            // Make sure to resolve the new inode regardless of the cache
-            bpf_map_delete_elem(&single_fragments, &cache->fs_event.target_path_key);
-        }
-        if (bpf_map_lookup_elem(&single_fragments, &cache->fs_event.target_path_key) == NULL) {
-            // Reset cursor
-            cache->cursor = 0;
-            path_len = build_path(path_builder, &cache->cursor, cache->target_dentry, &dummy_inode);
-            cache->fs_event.target_path_length = path_len;
-            // Save fragment
-            bpf_map_update_elem(&single_fragments, &cache->fs_event.target_path_key, path_builder->buff, BPF_ANY);
-        }
-    }
-    if ((flag & EMIT_EVENT) == EMIT_EVENT) {
-        u32 cpu = bpf_get_smp_processor_id();
-        bpf_perf_event_output(ctx, &fs_events, cpu, &cache->fs_event, sizeof(cache->fs_event));
-    }
-    return cache->cursor;
-}
-
-// resolve_paths - Resolves the requested paths following to the resolution mode.
-// @ctx: pointer to the registers context structure used to send the perf event.
-// @cache: pointer to the dentry_cache_t structure that contains the source and target dentry to resolve
-// @fs_event: pointer to an fs_event structure on the stack of the eBPF program that will be used to send the perf event
-// flag: defines what dentry should be resolved.
-__attribute__((always_inline)) static int resolve_paths(struct pt_regs *ctx, struct dentry_cache_t *cache, u8 flag) {
-    u32 ret = 0;
-    u64 resolution_mode = load_dentry_resolution_mode();
-    if (resolution_mode == DENTRY_RESOLUTION_FRAGMENTS)
-    {
-        ret = resolve_fragments(ctx, cache, flag);
-    }
-    if (resolution_mode == DENTRY_RESOLUTION_SINGLE_FRAGMENT)
-    {
-        ret = resolve_single_fragment(ctx, cache, flag);
-    }
-    if (resolution_mode == DENTRY_RESOLUTION_PERF_BUFFER)
-    {
-        ret = resolve_perf_buffer(ctx, cache, flag);
-    }
-    return ret;
+__attribute__((always_inline)) static void reset_cache_entry(struct dentry_cache_t *data_cache) {
+    data_cache->fs_event.src_path_key = 0;
+    data_cache->fs_event.target_path_key = 0;
+    data_cache->cursor = 0;
 }
 
 #endif

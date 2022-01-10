@@ -17,14 +17,8 @@ package main
 
 import (
 	"github.com/Gui774ume/fsprobe/cmd/fsprobe/cmd"
-	"github.com/sirupsen/logrus"
 )
 
 func main() {
-	logrus.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp:          true,
-		TimestampFormat:        "2006-01-02T15:04:05Z",
-		DisableLevelTruncation: true,
-	})
 	cmd.FSProbeCmd.Execute()
 }

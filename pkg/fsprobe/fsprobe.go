@@ -1,5 +1,6 @@
 /*
 Copyright © 2020 GUILLAUME FOURNIER
+Copyright 2021 The fsprobe Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,18 +23,18 @@ import (
 	"math"
 	"math/rand"
 	"os"
-	"path"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/DataDog/gopsutil/host"
-	"github.com/Gui774ume/ebpf"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
+	"github.com/Gui774ume/ebpf"
 	"github.com/Gui774ume/fsprobe/pkg/assets"
 	"github.com/Gui774ume/fsprobe/pkg/fsprobe/monitor"
 	"github.com/Gui774ume/fsprobe/pkg/model"
@@ -42,9 +43,8 @@ import (
 
 // FSProbe - Main File system probe structure
 type FSProbe struct {
-	options        *model.FSProbeOptions
-	paths          []string
-	wg             *sync.WaitGroup
+	options        model.FSProbeOptions
+	wg             sync.WaitGroup
 	collection     *ebpf.Collection
 	collectionSpec *ebpf.CollectionSpec
 	monitors       []*model.Monitor
@@ -65,19 +65,17 @@ func NewFSProbeWithOptions(options model.FSProbeOptions) *FSProbe {
 		logrus.Errorln("WARNING: Failed to adjust RLIMIT_MEMLOCK limit, loading eBPF maps might fail")
 	}
 	return &FSProbe{
-		options: &options,
-		paths:   []string{},
-		wg:      &sync.WaitGroup{},
+		options: options,
 	}
 }
 
 // GetWaitGroup - Returns the wait group of fsprobe
 func (fsp *FSProbe) GetWaitGroup() *sync.WaitGroup {
-	return fsp.wg
+	return &fsp.wg
 }
 
 // GetOptions - Returns the config of fsprobe
-func (fsp *FSProbe) GetOptions() *model.FSProbeOptions {
+func (fsp *FSProbe) GetOptions() model.FSProbeOptions {
 	return fsp.options
 }
 
@@ -114,8 +112,10 @@ func (fsp *FSProbe) Watch(paths ...string) error {
 		fsp.runningMutex.Unlock()
 	}
 	// 2) Add watches for the provided paths
-	if err := fsp.addWatch(paths...); err != nil {
-		return err
+	if len(paths) != 0 {
+		if err := fsp.addWatch(paths...); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -181,12 +181,9 @@ func (fsp *FSProbe) compileEBPFProgram() error {
 // loadEBPFProgram - Loads the compiled eBPF programs
 func (fsp *FSProbe) loadEBPFProgram() error {
 	// Recover asset
-	buf, err := assets.Asset("/probe.o")
-	if err != nil {
-		return errors.Wrap(err, "couldn't find asset")
-	}
-	reader := bytes.NewReader(buf)
+	reader := bytes.NewReader(assets.Probe)
 	// Load elf CollectionSpec
+	var err error
 	fsp.collectionSpec, err = ebpf.LoadCollectionSpecFromReader(reader)
 	if err != nil {
 		return errors.Wrap(err, "couldn't load collection spec")
@@ -228,47 +225,66 @@ func (fsp *FSProbe) startMonitors() error {
 func (fsp *FSProbe) addWatch(paths ...string) error {
 	// Add paths to the list of watched paths
 	fsp.runningMutex.Lock()
-	fsp.paths = append(fsp.paths, paths...)
 	fsp.runningMutex.Unlock()
 	if fsp.options.Recursive {
 		// Watch all directories provided in paths recursively
 		return fsp.addRecursiveWatch(paths...)
 	}
-	// On watch the top level directories
-	return fsp.addTopLevelWatch(paths...)
+	if len(fsp.options.Paths) == 0 {
+		// Watch the top level directories
+		return fsp.addTopLevelWatch(paths...)
+	}
+	return fsp.addFilteredWatch(paths[0])
+}
+
+func (fsp *FSProbe) addFilteredWatch(path string) error {
+	// For simplicity, also assume len(options.Paths) == 1
+	pathFilter := fsp.options.Paths[0]
+	list := strings.Split(pathFilter[len(path):], string(filepath.Separator))
+	for _, d := range list {
+		path = filepath.Join(path, d)
+		fsp.addTopLevelWatch(path)
+	}
+	return nil
 }
 
 // addTopLevelWatch - Adds watches by walking only the top level depth of directories
 func (fsp *FSProbe) addTopLevelWatch(paths ...string) error {
-	for _, p := range paths {
+	for _, path := range paths {
 		// Check if the path is a directory
-		pathInfo, err := os.Stat(p)
-		if err != nil {
-			return err
+		fi, err := os.Lstat(path)
+		if err != nil && !os.IsNotExist(err) {
+			return errors.Wrapf(err, "failed to stat %s", path)
 		}
-		if pathInfo.IsDir() {
+		if fi == nil {
+			logrus.WithField("path", path).Debug("Skip non-existing path.")
+			continue
+		}
+		if fi.IsDir() {
 			// List the top level of the directory
-			files, err := ioutil.ReadDir(p)
+			files, err := ioutil.ReadDir(path)
 			if err != nil {
-				return err
+				return errors.WithStack(err)
 			}
 			for _, f := range files {
-				fullPath := path.Join(p, f.Name())
-				statTmp, ok := f.Sys().(*syscall.Stat_t)
-				if !ok && statTmp == nil {
+				fullPath := filepath.Join(path, f.Name())
+				stat, ok := f.Sys().(*syscall.Stat_t)
+				if !ok {
 					continue
 				}
+				logrus.WithField("path", fullPath).WithField("ino", uint32(stat.Ino)).Debug("Set up watch.")
 				// Add inode in cache
-				fsp.watchInode(uint32(statTmp.Ino), fullPath)
+				fsp.watchInode(uint32(stat.Ino), fullPath)
 			}
 		}
 		// Add the file (or directory itself) to the list of watched files
-		pathStat, ok := pathInfo.Sys().(*syscall.Stat_t)
-		if !ok && pathStat == nil {
+		stat, ok := fi.Sys().(*syscall.Stat_t)
+		if !ok {
 			continue
 		}
+		logrus.WithField("path", path).WithField("ino", uint32(stat.Ino)).Debug("Set up watch.")
 		// Add file in cache
-		fsp.watchInode(uint32(pathStat.Ino), p)
+		fsp.watchInode(uint32(stat.Ino), path)
 	}
 	return nil
 }
@@ -279,14 +295,14 @@ func (fsp *FSProbe) addRecursiveWatch(paths ...string) error {
 	for _, path := range paths {
 		err = filepath.Walk(path, func(walkPath string, fi os.FileInfo, err error) error {
 			if err != nil {
-				logrus.Warnf("couldn't add watch for %s: %v", walkPath, err)
+				logrus.WithFields(logrus.Fields{
+					logrus.ErrorKey: err,
+					"path":          walkPath,
+				}).Warn("Failed to add watch.")
 				return nil
 			}
-			if !fi.IsDir() {
-				return fsp.addTopLevelWatch([]string{walkPath}...)
-			}
 			stat, ok := fi.Sys().(*syscall.Stat_t)
-			if !ok && stat == nil {
+			if !ok {
 				return nil
 			}
 			// Add inode in cache
@@ -305,7 +321,11 @@ func (fsp *FSProbe) watchInode(inode uint32, path string) {
 	for _, m := range fsp.monitors {
 		// Add inode filter
 		if err := m.AddInodeFilter(inode, path); err != nil {
-			logrus.Warnf("couldn't watch inode %v of path %s: %v", inode, path, err)
+			logrus.WithFields(logrus.Fields{
+				logrus.ErrorKey: err,
+				"inode":         inode,
+				"path":          path,
+			}).Warn("Failed to watch inode.")
 			continue
 		}
 	}
@@ -329,8 +349,6 @@ func (fsp *FSProbe) EditEBPFConstants(spec *ebpf.CollectionSpec) error {
 				for _, constant := range probe.Constants {
 					var value uint64
 					switch constant {
-					case model.DentryResolutionModeConst:
-						value = uint64(fsp.options.DentryResolutionMode)
 					case model.InodeFilteringModeConst:
 						if fsp.options.PathsFiltering {
 							value = 1
@@ -361,29 +379,18 @@ func (fsp *FSProbe) removeUnusedMaps() {
 	if fsp.collectionSpec == nil {
 		return
 	}
-	toRemove := []string{}
+	var toRemove []string
+L:
 	for name := range fsp.collectionSpec.Maps {
-		used := false
 		// check if the map is used in all the monitors
 		for _, m := range fsp.monitors {
-			rmm, ok := m.ResolutionModeMaps[fsp.options.DentryResolutionMode]
-			if !ok {
-				continue
-			}
-			for _, eMapName := range rmm {
-				logrus.Debugln(eMapName)
+			for _, eMapName := range m.ResolutionModeMaps {
 				if name == eMapName {
-					used = true
-					break
+					continue L
 				}
 			}
-			if used {
-				break
-			}
 		}
-		if !used {
-			toRemove = append(toRemove, name)
-		}
+		toRemove = append(toRemove, name)
 	}
 	for _, name := range toRemove {
 		delete(fsp.collectionSpec.Maps, name)

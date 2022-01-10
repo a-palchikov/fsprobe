@@ -15,7 +15,7 @@ BUILD_LFLAGS ?=
 BUILD_GO_VERSION ?= $(shell go version)
 
 ifeq ($(BUILD_LFLAGS),)
-BUILD_TIME = $(shell date -u --rfc-3339=seconds)
+BUILD_TIME = $(shell date -u "+%Y-%m-%d %H:%M:%S")
 BUILD_BRANCH = $(shell git rev-parse --abbrev-ref HEAD)
 BUILD_COMMIT = $(shell git rev-parse HEAD | cut -c1-12)
 BUILD_LFLAGS = -X 'github.com/Gui774ume/fsprobe/version.BuildTime=$(BUILD_TIME)' \

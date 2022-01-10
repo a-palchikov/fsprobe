@@ -60,6 +60,8 @@ struct syscall_cache_t {
             struct dentry *src_dentry;
             struct dentry *target_dentry;
             struct file_t target_file;
+            char src_pathname[MAX_PATH_LEN];
+            char target_pathname[MAX_PATH_LEN];
         } link;
 
         struct {

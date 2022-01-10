@@ -18,12 +18,73 @@ limitations under the License.
 
 #include "syscalls.h"
 
-int __attribute__((always_inline)) trace__sys_link() {
+int __attribute__((always_inline)) trace__sys_link(const char __user *old_name, const char __user *new_name) {
     struct syscall_cache_t syscall = {
         .type = EVENT_LINK,
     };
 
+    bpf_probe_read_str(&syscall.link.src_pathname, MAX_PATH_LEN, (void*)old_name);
+    bpf_probe_read_str(&syscall.link.target_pathname, MAX_PATH_LEN, (void*)new_name);
     cache_syscall(&syscall);
+    return 0;
+}
+
+// Trace the return from do_linkat.
+// This is used to trace the unsuccessful return from linkat in which case
+// we synthesize path fragments for source/target pathnames and resolve
+// dentry from the base directory (set in link_path_walk).
+int __attribute__((always_inline)) trace__sys_link_ret(struct pt_regs *ctx) {
+    // Remove syscall metadata in any case
+    struct syscall_cache_t *syscall = pop_syscall(EVENT_LINK);
+    if (!syscall)
+        return 0;
+
+    int ret = PT_REGS_RC(ctx);
+    if (ret == 0)
+    {
+        // Do not handle success
+        return 0;
+    }
+
+    u32 cpu = bpf_get_smp_processor_id();
+    struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache_builder, &cpu);
+    if (!data_cache)
+        return 0;
+
+    fill_process_data(&data_cache->fs_event.process_data);
+    data_cache->fs_event.retval = ret;
+    data_cache->fs_event.event = EVENT_LINK;
+    // Store the inode/mount ID tuples for the base path
+    data_cache->fs_event.src_inode = syscall->link.src_file.path_key.ino;
+    data_cache->fs_event.src_mount_id = syscall->link.src_file.path_key.mount_id;
+    data_cache->fs_event.target_mount_id = syscall->link.target_file.path_key.mount_id;
+    data_cache->fs_event.target_inode = syscall->link.target_file.path_key.ino;
+
+    struct dentry *src_dentry;
+    bpf_probe_read(&src_dentry, sizeof(struct dentry *), &syscall->link.src_dentry);
+    data_cache->src_dentry = src_dentry;
+
+    struct dentry *target_dentry;
+    bpf_probe_read(&target_dentry, sizeof(struct dentry *), &syscall->link.target_dentry);
+    data_cache->target_dentry = target_dentry;
+
+    if (!match(data_cache, FILTER_SRC) && !match(data_cache, FILTER_TARGET))
+        return 0;
+
+#ifdef DEBUG
+    bpf_printk("do_linkat_x: ret=%d.", data_cache->fs_event.retval);
+    bpf_printk("do_linkat_x: src(ino=%ld/mnt_id=%d).",
+               data_cache->fs_event.src_inode,
+               data_cache->fs_event.src_mount_id);
+    bpf_printk("do_linkat_x: tgt(ino=%ld/mnt_id=%d).",
+               data_cache->fs_event.target_inode,
+               data_cache->fs_event.target_mount_id);
+#endif
+
+    data_cache->pathname = syscall->link.src_pathname;
+    data_cache->target_pathname = syscall->link.target_pathname;
+    resolve_paths(ctx, data_cache, RESOLVE_ALL | EMIT_EVENT);
+
     return 0;
 }
 
@@ -97,7 +158,15 @@ __attribute__((always_inline)) static int trace_link_ret(struct pt_regs *ctx)
 SEC("kprobe/do_linkat")
 int kprobe_do_linkat(struct pt_regs *ctx)
 {
-    return trace__sys_link();
+    const char __user *old_name = (const char __user *)PT_REGS_PARM2(ctx);
+    const char __user *new_name = (const char __user *)PT_REGS_PARM4(ctx);
+    return trace__sys_link(old_name, new_name);
+}
+
+SEC("kretprobe/do_linkat")
+int kretprobe_do_linkat(struct pt_regs *ctx)
+{
+    return trace__sys_link_ret(ctx);
 }
 
 SEC("kprobe/vfs_link")

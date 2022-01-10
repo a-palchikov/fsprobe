@@ -222,6 +222,16 @@ var (
 					SectionName: "kprobe/do_linkat",
 					Enabled:     false,
 					Type:        ebpf.Kprobe,
+					DependsOn:   []*model.Probe{linkPathWalkProbe},
+				},
+				{
+					Name:        "linkat_ret",
+					SectionName: "kretprobe/do_linkat",
+					Enabled:     false,
+					Type:        ebpf.Kprobe,
+					Constants: []string{
+						model.InodeFilteringModeConst,
+					},
 				},
 				{
 					Name:        "link",

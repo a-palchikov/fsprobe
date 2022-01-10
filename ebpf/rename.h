@@ -35,10 +35,7 @@ int __attribute__((always_inline)) trace__sys_rename_ret(struct pt_regs *ctx) {
     // Remove syscall metadata in any case
     struct syscall_cache_t *syscall = pop_syscall(EVENT_RENAME);
     if (!syscall)
-    {
-        bpf_printk("do_renameat2_x: syscall already popped.");
         return 0;
-    }
 
     int ret = PT_REGS_RC(ctx);
     if (ret == 0)
@@ -72,6 +69,7 @@ int __attribute__((always_inline)) trace__sys_rename_ret(struct pt_regs *ctx) {
     if (!match(data_cache, FILTER_SRC) && !match(data_cache, FILTER_TARGET))
         return 0;
 
+#ifdef DEBUG
     bpf_printk("do_renameat2_x: ret=%d.", data_cache->fs_event.retval);
     bpf_printk("do_renameat2_x: src(ino=%ld/mnt_id=%d).",
                data_cache->fs_event.src_inode,
@@ -79,6 +77,7 @@ int __attribute__((always_inline)) trace__sys_rename_ret(struct pt_regs *ctx) {
     bpf_printk("do_renameat2_x: tgt(ino=%ld/mnt_id=%d).",
                data_cache->fs_event.target_inode,
                data_cache->fs_event.target_mount_id);
+#endif
 
     data_cache->pathname = syscall->rename.src_pathname;
     data_cache->target_pathname = syscall->rename.target_pathname;

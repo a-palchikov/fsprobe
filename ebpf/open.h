@@ -41,6 +41,7 @@ __attribute__((always_inline)) static int trace_path_openat(struct pt_regs *ctx,
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_open_cache_builder, &cpu);
     if (!data_cache)
         return 0;
+    reset_cache_entry(data_cache);
 
     u64 key = fill_process_data(&data_cache->fs_event.process_data);
     data_cache->fs_event.event = EVENT_OPEN;
@@ -115,18 +116,11 @@ __attribute__((always_inline)) static int trace_open(struct pt_regs *ctx, struct
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache_builder, &cpu);
     if (!data_cache)
         return 0;
-
     reset_cache_entry(data_cache);
+
     u64 key = fill_process_data(&data_cache->fs_event.process_data);
     data_cache->fs_event.event = EVENT_OPEN;
-    struct dentry *dentry;
-    bpf_probe_read(&dentry, sizeof(struct dentry *), &path->dentry);
-    data_cache->fs_event.src_inode = get_dentry_ino(dentry);
-    data_cache->fs_event.src_mount_id = get_path_mount_id(path);
-    data_cache->src_dentry = dentry;
-
-    if (!match(data_cache, FILTER_SRC))
-        return 0;
+    data_cache->path = path;
 
 #ifdef DEBUG
     struct nameidata *nd = (struct nameidata *)path;
@@ -151,21 +145,29 @@ __attribute__((always_inline)) static int trace_open_ret(struct pt_regs *ctx)
     struct syscall_cache_t *syscall = pop_syscall(EVENT_OPEN);
     if (!syscall)
         return 0;
-    //bpf_printk("open_x: remove syscall from stack.");
 
     u64 key = bpf_get_current_pid_tgid();
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache, &key);
     if (!data_cache)
         return 0;
 
-    data_cache->fs_event.flags = syscall->open.flags;
     data_cache->fs_event.retval = PT_REGS_RC(ctx);
+    data_cache->fs_event.flags = syscall->open.flags;
+    struct dentry *dentry;
+    bpf_probe_read(&dentry, sizeof(struct dentry *), &data_cache->path->dentry);
+    data_cache->src_dentry = dentry;
+    data_cache->fs_event.src_inode = get_dentry_ino(dentry);
+    data_cache->fs_event.src_mount_id = get_path_mount_id(data_cache->path);
+
 #ifdef DEBUG
     bpf_printk("vfs_open_x: resolve paths, ino=%ld, mnt_id=%d, ret=%d.",
                data_cache->fs_event.src_inode,
                data_cache->fs_event.src_mount_id,
                data_cache->fs_event.retval);
 #endif
+
+    if (!match(data_cache, FILTER_SRC))
+        return 0;
 
     resolve_paths(ctx, data_cache, RESOLVE_SRC | EMIT_EVENT);
     bpf_map_delete_elem(&dentry_cache, &key);

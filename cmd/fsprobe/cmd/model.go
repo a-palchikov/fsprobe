@@ -22,6 +22,7 @@ type CLIOptions struct {
 	Format         string
 	Verbose        bool
 	Version        bool
+	Systemd        bool
 	OutputFilePath string
 	FSOptions      model.FSProbeOptions
 }

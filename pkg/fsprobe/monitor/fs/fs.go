@@ -371,7 +371,7 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 		_ = removeCacheEntry(event.SrcPathKey(), monitor)
 	case model.SetAttr:
 	default:
-		logger.Warn("Unhandled event type.")
+		logger.Debug("Unhandled event type.")
 	}
 
 	if !matched {

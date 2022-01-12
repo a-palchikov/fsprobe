@@ -132,11 +132,13 @@ func (r *PathResolver) ResolveAdaptive(leaf PathKey) (pathname string, err error
 	var keys []PathKey
 	var entries []*pathEntry
 	var resolutionErr error
+	var absolutePath bool
 
 	log := logrus.New()
 	//log.SetLevel(logrus.DebugLevel)
 	//log.SetOutput(os.Stdout)
 	logger := log.WithField("key", leaf)
+	logger.Debug("Resolve path.")
 
 	key := leaf
 	// Fetch path recursively
@@ -176,18 +178,24 @@ func (r *PathResolver) ResolveAdaptive(leaf PathKey) (pathname string, err error
 		if !IsFakeInode(key.inode) {
 			keys = append(keys, key)
 			entries = append(entries, path)
+		} else {
+			// TODO(dima): for now, consider the absolute
+			// form synthetic entries to be complete, so bail
+			// out upon encountering one
+			if path.name[0] == '/' {
+				pathname = path.name
+				// Avoid resolving with mounts
+				absolutePath = true
+				break
+			}
 		}
 
 		// Don't append dentry name if this is the root dentry (i.d. name == '/')
-		if path.name[0] != '\x00' && (pathname == "" || pathname[0] != '/') {
-			if path.name[0] != '/' {
-				// TODO(dima): synthetic paths can be absolute
-				// as kprobe will not normalize it in case of a failed
-				// syscall. Need a way to normalize it after receiving
-				pathname = "/" + path.name + pathname
-			} else {
-				pathname = path.name
-			}
+		if path.name[0] != '\x00' && path.name[0] != '/' {
+			// TODO(dima): synthetic paths can be absolute
+			// as kprobe will not normalize it in case of a failed
+			// syscall. Need a way to normalize upon receiving
+			pathname = "/" + path.name + pathname
 		}
 		logger.Debug("Pathname: ", pathname)
 
@@ -212,6 +220,9 @@ func (r *PathResolver) ResolveAdaptive(leaf PathKey) (pathname string, err error
 
 	if err == nil {
 		r.cacheEntries(keys, entries)
+		if absolutePath {
+			return pathname, nil
+		}
 		return r.resolveWithMount(leaf.mountID, pathname), nil
 	}
 	// nothing inserted in cache, release everything
@@ -295,15 +306,10 @@ func (r *PathResolver) resolveFromMap(key PathKey) (pathname string, err error) 
 		}
 
 		// Don't append dentry name if this is the root dentry (i.d. name == '/')
-		//if path.name[0] == '/' {
-		//	name = "/"
-		//} else {
-		//	name = path.GetString()
-		//	pathname = "/" + name + pathname
-		//}
-
-		name = path.GetString()
-		if name != "/" {
+		if path.name[0] == '/' {
+			name = "/"
+		} else {
+			name = path.GetString()
 			pathname = "/" + name + pathname
 		}
 

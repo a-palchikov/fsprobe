@@ -348,8 +348,8 @@ __attribute__((always_inline)) static int resolve_paths(void *ctx, struct dentry
         if (cache->fs_event.event == EVENT_RENAME || cache->fs_event.event == EVENT_LINK) {
             // Make sure to resolve the new inode regardless of the cache
             bpf_map_delete_elem(&path_fragments, &key);
-            bpf_printk("resolve_paths: remove entry for ino=%ld/mnt_id=%d",
-                       key.ino, key.mount_id);
+            //bpf_printk("resolve_paths: remove entry for ino=%ld/mnt_id=%d",
+            //           key.ino, key.mount_id);
         }
         if (cache->target_pathname) {
             embed_pathname(&key, cache, flag&RESOLVE_TARGET);

@@ -18,8 +18,6 @@ package fs
 import (
 	"C"
 	"fmt"
-	"io/ioutil"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -346,42 +344,17 @@ type openFlag = model.OpenFlag
 // that were never created for failed events.
 func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 	// Take cleanup actions on the cache
-	log := logrus.New()
-	debug := event.SrcMountID == 253 || event.TargetMountID == 253
-	log.SetOutput(ioutil.Discard)
-	if debug {
-		log.SetOutput(os.Stdout)
-		log.SetLevel(logrus.DebugLevel)
-	}
-	logger := log.WithFields(model.FieldsForEvent(event))
-	logger.Info("New event.")
+	logger := logrus.WithFields(model.FieldsForEvent(event))
+	logger.Debug("New event.")
 	var matched bool
 	switch event.EventType {
 	case model.Open:
 		matched = r.matches(int(event.SrcMountID), event.SrcFilename)
-		//if matched && event.IsSuccess() && openFlag(event.Flags)&model.O_CREAT != 0 {
-		//	err := r.maybeAddInodeFilter(monitor,
-		//		uint32(event.SrcInode),
-		//		event.SrcFilename,
-		//		logger)
-		//	if err != nil {
-		//		logger.WithError(err).Warn("Failed to add inode filter.")
-		//	}
-		//}
 		if model.IsFakeInode(event.SrcInode) {
 			_ = removeCacheEntry(event.SrcPathKey(), monitor)
 		}
 	case model.Mkdir:
 		matched = r.matches(int(event.SrcMountID), event.SrcFilename)
-		//if matched && event.IsSuccess() {
-		//	err := r.maybeAddInodeFilter(monitor,
-		//		uint32(event.SrcInode),
-		//		event.SrcFilename,
-		//		logger)
-		//	if err != nil {
-		//		logger.WithError(err).Warn("Failed to add inode filter.")
-		//	}
-		//}
 		if model.IsFakeInode(event.SrcInode) {
 			_ = removeCacheEntry(event.SrcPathKey(), monitor)
 		}
@@ -389,15 +362,6 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 		matchedSrc := r.matches(int(event.SrcMountID), event.SrcFilename)
 		matchedTarget := r.matches(int(event.TargetMountID), event.TargetFilename)
 		matched = matchedSrc || matchedTarget
-		//if matchedTarget && event.IsSuccess() {
-		//	err := r.maybeAddInodeFilter(monitor,
-		//		uint32(event.TargetInode),
-		//		event.TargetFilename,
-		//		logger.WithField("target", event.TargetFilename))
-		//	if err != nil {
-		//		logger.WithError(err).Warn("Failed to add inode filter.")
-		//	}
-		//}
 		_ = removeCacheEntry(event.SrcPathKey(), monitor)
 		if model.IsFakeInode(event.TargetInode) {
 			_ = removeCacheEntry(event.TargetPathKey(), monitor)
@@ -411,7 +375,7 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 	}
 
 	if !matched {
-		logger.Info("Unmatched.")
+		logger.Debug("Unmatched.")
 		return
 	}
 

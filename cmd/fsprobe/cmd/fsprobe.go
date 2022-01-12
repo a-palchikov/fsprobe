@@ -80,7 +80,7 @@ func initLogging() {
 		DisableTimestamp: options.Systemd,
 	})
 	logrus.SetOutput(os.Stdout)
-	logrus.SetLevel(logrus.InfoLevel)
+	logrus.SetLevel(logrus.WarnLevel)
 	if options.Verbose {
 		logrus.SetLevel(logrus.DebugLevel)
 	}

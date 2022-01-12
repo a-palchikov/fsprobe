@@ -120,8 +120,10 @@ __attribute__((always_inline)) static int trace_mkdir_ret(struct pt_regs *ctx)
     data_cache->fs_event.src_mount_id = get_path_mount_id(syscall->mkdir.path);
     data_cache->fs_event.src_inode = get_dentry_ino(data_cache->src_dentry);
 
-    if (!match(data_cache, FILTER_SRC))
+    if (!match(data_cache, FILTER_SRC)) {
+        bpf_map_delete_elem(&dentry_cache, &key);
         return 0;
+    }
 
 #ifdef DEBUG
     struct basename path = {};
@@ -131,15 +133,16 @@ __attribute__((always_inline)) static int trace_mkdir_ret(struct pt_regs *ctx)
               data_cache->fs_event.src_mount_id,
               path.name);
 #endif
+
     resolve_paths(ctx, data_cache, RESOLVE_SRC | EMIT_EVENT);
 
     // Watch the new directory
     if (!data_cache->fs_event.retval && data_cache->fs_event.src_inode != 0) {
         u8 value = 0;
         bpf_map_update_elem(&inodes_filter, &data_cache->fs_event.src_inode, &value, BPF_ANY);
-        bpf_printk("mkdir_x: started watching, ino=%ld, mnt_id=%d.",
-              data_cache->fs_event.src_inode,
-              data_cache->fs_event.src_mount_id);
+        //bpf_printk("mkdir_x: started watching, ino=%ld, mnt_id=%d.",
+        //      data_cache->fs_event.src_inode,
+        //      data_cache->fs_event.src_mount_id);
     }
 
     bpf_map_delete_elem(&dentry_cache, &key);

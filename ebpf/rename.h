@@ -146,7 +146,8 @@ __attribute__((always_inline)) static int trace_rename_ret(struct pt_regs *ctx)
 
 #ifdef DEBUG
     bpf_printk("vfs_rename_x: ret=%d", data_cache->fs_event.retval);
-    bpf_printk("vfs_rename_x: src(ino=%ld/mnt_id=%d)",
+    bpf_printk("vfs_rename_x: src(key=%ld/ino=%ld/mnt_id=%d)",
+               data_cache->fs_event.src_path_key,
                data_cache->fs_event.src_inode,
                data_cache->fs_event.src_mount_id);
     bpf_printk("vfs_rename_x: tgt(ino=%ld/mnt_id=%d)",

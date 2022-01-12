@@ -305,6 +305,8 @@ __attribute__((always_inline)) static void embed_pathname(struct path_key_t *bas
         bpf_probe_read_str(&value->name, sizeof(value->name), (void *)cache->target_pathname);
     }
 #ifdef DEBUG
+    bpf_printk("embed_path: name=%s, ino=%ld/mnt_id=%d.",
+               value->name, key.ino, key.mount_id);
     bpf_printk("embed_path: parent=ino:%ld/mnt_id=%d (%ld/%d).",
                value->parent.ino, value->parent.mount_id,
                key.ino, key.mount_id);

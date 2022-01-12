@@ -601,4 +601,18 @@ struct bpf_map_def SEC("maps/enabled_events") enabled_events = {
 
 #define EXT4_SUPER_MAGIC    0xef53
 
+#ifndef CORE
+#define READ_KERN(ptr) ({ typeof(ptr) _val;                             \
+                          __builtin_memset(&_val, 0, sizeof(_val));     \
+                          bpf_probe_read(&_val, sizeof(_val), &ptr);    \
+                          _val;                                         \
+                        })
+#else
+#define READ_KERN(ptr) ({ typeof(ptr) _val;                             \
+                          __builtin_memset(&_val, 0, sizeof(_val));     \
+                          bpf_core_read(&_val, sizeof(_val), &ptr);    \
+                          _val;                                         \
+                        })
+#endif
+
 #endif

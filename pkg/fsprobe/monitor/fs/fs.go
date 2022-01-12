@@ -287,23 +287,23 @@ var (
 					},
 				},
 			},
-			model.SetAttr: {
-				{
-					Name:        "setattr",
-					SectionName: "kprobe/security_inode_setattr",
-					Enabled:     false,
-					Type:        ebpf.Kprobe,
-					Constants: []string{
-						model.InodeFilteringModeConst,
-					},
-				},
-				{
-					Name:        "setattr_ret",
-					SectionName: "kretprobe/security_inode_setattr",
-					Enabled:     false,
-					Type:        ebpf.Kprobe,
-				},
-			},
+			//model.SetAttr: {
+			//	{
+			//		Name:        "setattr",
+			//		SectionName: "kprobe/security_inode_setattr",
+			//		Enabled:     false,
+			//		Type:        ebpf.Kprobe,
+			//		Constants: []string{
+			//			model.InodeFilteringModeConst,
+			//		},
+			//	},
+			//	{
+			//		Name:        "setattr_ret",
+			//		SectionName: "kretprobe/security_inode_setattr",
+			//		Enabled:     false,
+			//		Type:        ebpf.Kprobe,
+			//	},
+			//},
 		},
 		PerfMaps: []*model.PerfMap{
 			{
@@ -353,19 +353,7 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 		log.SetOutput(os.Stdout)
 		log.SetLevel(logrus.DebugLevel)
 	}
-	logger := log.WithFields(logrus.Fields{
-		"path":       event.SrcFilename,
-		"type":       event.EventType,
-		"mnt_id":     event.SrcMountID,
-		"key":        event.SrcPathnameKey,
-		"tgt_mnt_id": event.TargetMountID,
-		"ino":        event.PrintInode(),
-		"tgt_ino":    event.TargetInode,
-		"tgt_key":    event.TargetPathnameKey,
-		"comm":       event.Comm,
-		"ret":        event.Retval,
-		"flags":      event.PrintFlags(),
-	})
+	logger := log.WithFields(model.FieldsForEvent(event))
 	logger.Info("New event.")
 	var matched bool
 	switch event.EventType {
@@ -428,11 +416,7 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 	}
 
 	// Dispatch event
-	select {
-	case monitor.Options.EventChan <- event:
-	default:
-		logger.Debug("Dropped event.")
-	}
+	monitor.Options.EventChan <- event
 }
 
 // maybeAddInodeFilter adds a new inode filter at the specified path

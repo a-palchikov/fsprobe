@@ -119,8 +119,8 @@ func ParseFSEvent(data []byte, monitor *Monitor) (*FSEvent, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Resolve paths
 	if err := resolvePaths(data, evt, monitor, read); err != nil {
+		logrus.WithError(err).WithFields(FieldsForEvent(evt)).Debug("Failed to resolve paths for event.")
 		return nil, err
 	}
 	return evt, nil
@@ -137,14 +137,16 @@ func resolvePaths(data []byte, evt *FSEvent, monitor *Monitor, read int) (err er
 		logger.Debug("Invalid mountID/inode tuple.")
 		return nil
 	}
-	evt.SrcFilename, err = monitor.DentryResolver.Resolve(key)
+	//evt.SrcFilename, err = monitor.DentryResolver.Resolve(key)
+	evt.SrcFilename, err = monitor.DentryResolver.ResolveAdaptive(key)
 	if err != nil {
 		return errors.Wrap(err, "failed to resolve src dentry path")
 	}
 	switch evt.EventType {
 	case Link, Rename:
 		targetKey := evt.TargetPathKey()
-		evt.TargetFilename, err = monitor.DentryResolver.Resolve(targetKey)
+		//evt.TargetFilename, err = monitor.DentryResolver.Resolve(targetKey)
+		evt.TargetFilename, err = monitor.DentryResolver.ResolveAdaptive(targetKey)
 		if err != nil {
 			return errors.Wrap(err, "failed to resolve target dentry path")
 		}
@@ -294,7 +296,7 @@ func (fs FSEvent) PrintInode() string {
 		}
 	}
 	if IsFakeInode(inode) {
-		return fmt.Sprint("*", strconv.FormatUint(inode&((1<<32)-1), 10))
+		return fmt.Sprint("*", strconv.FormatUint(inode&(1<<32-1), 10))
 	}
 	return strconv.FormatUint(inode, 10)
 }
@@ -313,4 +315,20 @@ func (fs FSEvent) TargetPathKey() PathKey {
 		inode = uint64(fs.TargetPathnameKey)
 	}
 	return NewPathKey(inode, fs.TargetMountID)
+}
+
+func FieldsForEvent(event *FSEvent) logrus.Fields {
+	return logrus.Fields{
+		"path":       event.SrcFilename,
+		"type":       event.EventType,
+		"mnt_id":     event.SrcMountID,
+		"key":        event.SrcPathnameKey,
+		"tgt_mnt_id": event.TargetMountID,
+		"ino":        event.PrintInode(),
+		"tgt_ino":    event.TargetInode,
+		"tgt_key":    event.TargetPathnameKey,
+		"comm":       event.Comm,
+		"ret":        event.Retval,
+		"flags":      event.PrintFlags(),
+	}
 }

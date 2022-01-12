@@ -21,11 +21,13 @@ import (
 	"encoding/binary"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"unsafe"
 
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 
 	"github.com/Gui774ume/ebpf"
 	"github.com/Gui774ume/fsprobe/pkg/utils"
@@ -50,7 +52,7 @@ func NewPathResolver(monitor *Monitor) (*PathResolver, error) {
 	}
 	pathEntryPool := &sync.Pool{}
 	pathEntryPool.New = func() interface{} {
-		return &pathEntry{}
+		return &pathEntry{new: true}
 	}
 	return &PathResolver{
 		pathnames:       ebpfMap{m: pathnames},
@@ -107,6 +109,9 @@ func (r PathKey) HasEmptyInode() bool {
 }
 
 func (r PathKey) String() string {
+	if IsFakeInode(r.inode) {
+		return fmt.Sprintf("%d/*%d", r.mountID, r.inode&(1<<32-1))
+	}
 	return fmt.Sprintf("%d/%d", r.mountID, r.inode)
 }
 
@@ -119,6 +124,102 @@ func (r *PathResolver) Resolve(leaf PathKey) (pathname string, err error) {
 		}
 	}
 	return r.resolveWithMount(leaf.mountID, pathname), nil
+}
+
+func (r *PathResolver) ResolveAdaptive(leaf PathKey) (pathname string, err error) {
+	var path *pathEntry
+	var depth int64
+	var keys []PathKey
+	var entries []*pathEntry
+	var resolutionErr error
+
+	log := logrus.New()
+	//log.SetLevel(logrus.DebugLevel)
+	//log.SetOutput(os.Stdout)
+	logger := log.WithField("key", leaf)
+
+	key := leaf
+	// Fetch path recursively
+	for i := 0; i <= maxPathDepth; i++ {
+		depth++
+		path, err = r.lookupInodeFromCache(key)
+		if err != nil {
+			if !errors.Is(err, ErrEntryNotFound) {
+				logger.WithError(err).Debug("Failed to look up the key.")
+				break
+			}
+			logger.Debug("Key not found in cache, fall back to map.")
+			var pathLeaf pathLeaf
+			pathLeaf, err = r.lookupInodeFromMap(key)
+			if err != nil {
+				pathname = ""
+				err = ErrDentryPathKeyNotFound{key: key}
+				logger.Debug("Key not found in map, bail.")
+				break
+			}
+			if pathLeaf.name[0] == '\x00' {
+				if depth >= maxPathDepth {
+					resolutionErr = ErrTruncatedParents{key: key}
+				} else {
+					resolutionErr = ErrKernelMapResolution{key: key}
+				}
+				break
+			}
+			path = r.newPathEntryFromPool(pathLeaf.parent, pathLeaf.GetString())
+			logger.WithField("path", path).Debug("New path elem.")
+		}
+
+		// Do not cache fake path keys in the case of rename events.
+		// Also maintain the full chain in order to set
+		// up parent links properly even though some entries might already
+		// exist in the cache
+		if !IsFakeInode(key.inode) {
+			keys = append(keys, key)
+			entries = append(entries, path)
+		}
+
+		// Don't append dentry name if this is the root dentry (i.d. name == '/')
+		if path.name[0] != '\x00' && (pathname == "" || pathname[0] != '/') {
+			if path.name[0] != '/' {
+				// TODO(dima): synthetic paths can be absolute
+				// as kprobe will not normalize it in case of a failed
+				// syscall. Need a way to normalize it after receiving
+				pathname = "/" + path.name + pathname
+			} else {
+				pathname = path.name
+			}
+		}
+		logger.Debug("Pathname: ", pathname)
+
+		if path.parent.inode == 0 {
+			break
+		}
+
+		// Prepare next key
+		key = path.parent
+		logger = log.WithField("key", key)
+		logger.Debug("Move to next key.")
+	}
+
+	if len(pathname) == 0 {
+		pathname = "/"
+	}
+
+	// resolution errors are more important than regular map lookup errors
+	if resolutionErr != nil {
+		err = resolutionErr
+	}
+
+	if err == nil {
+		r.cacheEntries(keys, entries)
+		return r.resolveWithMount(leaf.mountID, pathname), nil
+	}
+	// nothing inserted in cache, release everything
+	for _, entry := range entries {
+		r.pathEntryPool.Put(entry)
+	}
+	return pathname, err
+
 }
 
 // DelCacheEntry removes an entry from the cache
@@ -157,7 +258,7 @@ func (r *PathResolver) Remove(key PathKey) error {
 }
 
 func (r *PathResolver) resolveWithMount(mountID uint32, path string) string {
-	if mount, ok := r.mounts[int(mountID)]; ok {
+	if mount, ok := r.mounts[int(mountID)]; ok && !strings.HasPrefix(path, mount.MountPoint) {
 		return filepath.Join(mount.MountPoint, path)
 	}
 	return path
@@ -194,16 +295,21 @@ func (r *PathResolver) resolveFromMap(key PathKey) (pathname string, err error) 
 		}
 
 		// Don't append dentry name if this is the root dentry (i.d. name == '/')
-		if path.name[0] == '/' {
-			name = "/"
-		} else {
-			name = path.GetString()
+		//if path.name[0] == '/' {
+		//	name = "/"
+		//} else {
+		//	name = path.GetString()
+		//	pathname = "/" + name + pathname
+		//}
+
+		name = path.GetString()
+		if name != "/" {
 			pathname = "/" + name + pathname
 		}
 
 		// do not cache fake path keys in the case of rename events
 		if !IsFakeInode(key.inode) {
-			cacheEntry = r.getPathEntryFromPool(path.parent, name)
+			cacheEntry = r.newPathEntryFromPool(path.parent, name)
 
 			keys = append(keys, cacheKey)
 			entries = append(entries, cacheEntry)
@@ -238,77 +344,14 @@ func (r *PathResolver) resolveFromMap(key PathKey) (pathname string, err error) 
 	return pathname, err
 }
 
-//func (r *PathResolver) resolveFromMap0(key PathKey) (pathname string, err error) {
-//	log := logrus.New()
-//	log.SetOutput(ioutil.Discard)
-//	var debug bool
-//	//debug := leaf.mountID == 253
-//	if debug {
-//		log.SetOutput(os.Stdout)
-//		log.SetLevel(logrus.DebugLevel)
-//	}
-//	logger := log.WithField("key", key.String())
-//	logger.Debug("resolveFromMap.")
-//	//keyB := key.MarshalBinary()
-//	var value pathLeaf
-//	//var valueB []byte
-//	// Fetch path recursively
-//	for i := 0; i <= maxPathDepth; i++ {
-//		//if valueB, _ = r.pathnames.GetBytes(keyB); len(valueB) == 0 {
-//		//	logger.WithError(err).WithField("empty", len(valueB) == 0).Debug("Failed to read fragment value from cache.")
-//		//	pathname = "*ERROR*" + pathname
-//		//	break
-//		//	// TODO(dima): return proper error for this case
-//		//}
-//		//// Read next key from valueB (parent key)
-//		//read := key.Read(valueB)
-//		//// Read current fragment from valueB
-//		//if err = value.Read(valueB[read:]); err != nil {
-//		//	err = errors.Wrap(err, "failed to decode fragment")
-//		//	break
-//		//}
-//
-//		if err := r.pathnames.Lookup(key, &value); err != nil {
-//			return "", err
-//		}
-//
-//		logger = log.WithFields(logrus.Fields{
-//			"par": value.parent.String(),
-//		})
-//		logger.Debug("Decoded fragment value.")
-//
-//		// Don't append dentry name if this is the root dentry (i.e. name == '/')
-//		if !value.IsRoot() {
-//			pathname = "/" + value.GetString() + pathname
-//		}
-//
-//		if key.HasEmptyInode() {
-//			//logger.Debug("Value has empty inode, bail.")
-//			break
-//		}
-//
-//		//logger.Debug("Move to next key.")
-//		// Prepare next key
-//		//key.Write(keyB)
-//		key = value.parent
-//	}
-//
-//	if len(pathname) == 0 {
-//		pathname = "/"
-//	}
-//
-//	return pathname, err
-//}
-
 // resolveFromCache resolves a path from the cache
 func (r *PathResolver) resolveFromCache(key PathKey) (pathname string, err error) {
 	var path *pathEntry
-	depth := int64(0)
-	//key := PathKey{MountID: mountID, Inode: inode}
+	var depth int64
 
 	// Fetch path recursively
 	for i := 0; i <= maxPathDepth; i++ {
-		path, err = r.lookupInodeFromCache(key.mountID, key.inode)
+		path, err = r.lookupInodeFromCache(key)
 		if err != nil {
 			break
 		}
@@ -320,14 +363,15 @@ func (r *PathResolver) resolveFromCache(key PathKey) (pathname string, err error
 		}
 
 		if path.parent.inode == 0 {
-			if len(pathname) == 0 {
-				pathname = "/"
-			}
 			break
 		}
 
 		// Prepare next key
 		key = path.parent
+	}
+
+	if len(pathname) == 0 {
+		pathname = "/"
 	}
 
 	return pathname, err
@@ -348,31 +392,35 @@ func (r *PathResolver) cacheInode(key PathKey, path *pathEntry) error {
 	}
 
 	// release before in case of override
-	if prev, exists := entries.Get(key.inode); exists {
+	if prev, exists := entries.Get(key.inode); exists && path.new {
+		prev.(*pathEntry).new = true
 		r.pathEntryPool.Put(prev)
 	}
 
-	entries.Add(key.inode, path)
+	if path.new {
+		path.new = false
+		entries.Add(key.inode, path)
+	}
 
 	return nil
 }
 
-func (r *PathResolver) resolveParentFromCache(mountID uint32, inode uint64) (uint32, uint64, error) {
-	path, err := r.lookupInodeFromCache(mountID, inode)
-	if err != nil {
-		return 0, 0, ErrEntryNotFound
-	}
+//func (r *PathResolver) resolveParentFromCache(mountID uint32, inode uint64) (uint32, uint64, error) {
+//	path, err := r.lookupInodeFromCache(mountID, inode)
+//	if err != nil {
+//		return 0, 0, ErrEntryNotFound
+//	}
+//
+//	return path.parent.mountID, path.parent.inode, nil
+//}
 
-	return path.parent.mountID, path.parent.inode, nil
-}
-
-func (r *PathResolver) lookupInodeFromCache(mountID uint32, inode uint64) (*pathEntry, error) {
-	entries, exists := r.cache[mountID]
+func (r *PathResolver) lookupInodeFromCache(key PathKey) (*pathEntry, error) {
+	entries, exists := r.cache[key.mountID]
 	if !exists {
 		return nil, ErrEntryNotFound
 	}
 
-	entry, exists := entries.Get(inode)
+	entry, exists := entries.Get(key.inode)
 	if !exists {
 		return nil, ErrEntryNotFound
 	}
@@ -380,7 +428,14 @@ func (r *PathResolver) lookupInodeFromCache(mountID uint32, inode uint64) (*path
 	return entry.(*pathEntry), nil
 }
 
-func (r *PathResolver) getPathEntryFromPool(parent PathKey, name string) *pathEntry {
+func (r *PathResolver) lookupInodeFromMap(key PathKey) (leaf pathLeaf, err error) {
+	if err := r.pathnames.Lookup(key, &leaf); err != nil {
+		return leaf, errors.Wrapf(err, "unable to get filename for %s", key)
+	}
+	return leaf, nil
+}
+
+func (r *PathResolver) newPathEntryFromPool(parent PathKey, name string) *pathEntry {
 	entry := r.pathEntryPool.Get().(*pathEntry)
 	entry.parent = parent
 	entry.name = name
@@ -414,9 +469,15 @@ func IsFakeInode(inode uint64) bool {
 	return inode>>32 == uint64(fakeInodeMSW)
 }
 
+func (r pathEntry) String() string {
+	return fmt.Sprintf("pathEntry(par(%s), %s)", r.parent, r.name)
+}
+
 type pathEntry struct {
 	parent PathKey
 	name   string
+	// new indicates the entry is new and is not available in cache
+	new bool
 }
 
 type pathLeaf struct {
@@ -446,7 +507,7 @@ type ErrDentryPathKeyNotFound struct {
 }
 
 func (err ErrDentryPathKeyNotFound) Error() string {
-	return fmt.Sprint("dentry path not found for", err.key)
+	return fmt.Sprint("dentry path not found for ", err.key)
 }
 
 // ErrTruncatedParents is used to notify that some parents of the path are missing
@@ -455,7 +516,7 @@ type ErrTruncatedParents struct {
 }
 
 func (err ErrTruncatedParents) Error() string {
-	return fmt.Sprint("truncated parents for", err.key)
+	return fmt.Sprint("truncated parents for ", err.key)
 }
 
 // ErrKernelMapResolution is used to notify that the Kernel maps resolution failed
@@ -464,7 +525,7 @@ type ErrKernelMapResolution struct {
 }
 
 func (err ErrKernelMapResolution) Error() string {
-	return fmt.Sprint("map resolution error for", err.key)
+	return fmt.Sprint("map resolution error for ", err.key)
 }
 
 const (

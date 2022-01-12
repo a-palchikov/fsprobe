@@ -10,8 +10,6 @@
 struct syscall_cache_t {
     u64 type;
 
-    //struct dentry_resolver_input_t resolver;
-
     union {
         struct {
             int flags;

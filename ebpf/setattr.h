@@ -26,32 +26,28 @@ __attribute__((always_inline)) static int trace_setattr(struct pt_regs *ctx, str
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache_builder, &cpu);
     if (!data_cache)
         return 0;
-    // Reset pathname keys (could mess up resolution if there was some leftover data)
-    data_cache->fs_event.src_path_key = 0;
-    data_cache->fs_event.target_path_key = 0;
-    data_cache->cursor = 0;
-    // Probe type
-    data_cache->fs_event.event = EVENT_SETXATTR;
+    reset_cache_entry(data_cache);
 
-    // Process data
+    data_cache->fs_event.event = EVENT_SETXATTR;
     u64 key = fill_process_data(&data_cache->fs_event.process_data);
 
     // SetAttr data
     bpf_probe_read(&data_cache->fs_event.flags, sizeof(attr->ia_valid), &attr->ia_valid);
     bpf_probe_read(&data_cache->fs_event.mode, sizeof(attr->ia_mode), &attr->ia_mode);
 
-    // Add inode data
     data_cache->fs_event.src_inode = get_dentry_ino(dentry);
-    // Add mount ID
     struct inode *inode = get_dentry_inode(dentry);
     data_cache->fs_event.src_mount_id = get_inode_mount_id(inode);
-
-    // Dentry cache
     data_cache->src_dentry = dentry;
 
-    // Filter
     if (!match(data_cache, FILTER_SRC))
         return 0;
+
+#ifdef DEBUG
+    bpf_printk("setattr: matched for event=%d, mnt_id=%d.",
+               data_cache->fs_event.event,
+               data_cache->fs_event.src_mount_id);
+#endif
 
     // Send to cache
     bpf_map_update_elem(&dentry_cache, &key, data_cache, BPF_ANY);
@@ -68,7 +64,6 @@ __attribute__((always_inline)) static int trace_setattr_ret(struct pt_regs *ctx)
         return 0;
     data_cache->fs_event.retval = PT_REGS_RC(ctx);
 
-    // Resolve paths
     resolve_paths(ctx, data_cache, RESOLVE_SRC | EMIT_EVENT);
     bpf_map_delete_elem(&dentry_cache, &key);
     return 0;

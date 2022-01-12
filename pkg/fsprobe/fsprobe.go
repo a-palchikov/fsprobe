@@ -272,19 +272,21 @@ func (fsp *FSProbe) addTopLevelWatch(paths ...string) error {
 				if !ok {
 					continue
 				}
-				logrus.WithField("path", fullPath).WithField("ino", uint32(stat.Ino)).Debug("Set up watch.")
-				// Add inode in cache
-				fsp.watchInode(uint32(stat.Ino), fullPath)
+				if f.IsDir() {
+					// Add inode in cache
+					fsp.watchInode(uint32(stat.Ino), fullPath)
+					logrus.WithField("path", fullPath).WithField("ino", uint32(stat.Ino)).Debug("Set up watch.")
+				}
 			}
+			// Add the directory itself to the list of watched files
+			stat, ok := fi.Sys().(*syscall.Stat_t)
+			if !ok {
+				continue
+			}
+			logrus.WithField("path", path).WithField("ino", uint32(stat.Ino)).Debug("Set up watch.")
+			fsp.watchInode(uint32(stat.Ino), path)
+
 		}
-		// Add the file (or directory itself) to the list of watched files
-		stat, ok := fi.Sys().(*syscall.Stat_t)
-		if !ok {
-			continue
-		}
-		logrus.WithField("path", path).WithField("ino", uint32(stat.Ino)).Debug("Set up watch.")
-		// Add file in cache
-		fsp.watchInode(uint32(stat.Ino), path)
 	}
 	return nil
 }

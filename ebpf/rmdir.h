@@ -50,8 +50,8 @@ long __attribute__((always_inline)) trace__sys_rmdir_ret(struct pt_regs *ctx)
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache_builder, &cpu);
     if (!data_cache)
         return 0;
-
     reset_cache_entry(data_cache);
+
     fill_process_data(&data_cache->fs_event.process_data);
     data_cache->fs_event.retval = ret;
     data_cache->fs_event.event = EVENT_RMDIR;
@@ -81,8 +81,8 @@ __attribute__((always_inline)) static int trace_rmdir(struct pt_regs *ctx, struc
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache_builder, &cpu);
     if (!data_cache)
         return 0;
-
     reset_cache_entry(data_cache);
+
     u64 key = fill_process_data(&data_cache->fs_event.process_data);
     data_cache->fs_event.event = EVENT_RMDIR;
     data_cache->fs_event.src_inode = get_dentry_ino(dentry);
@@ -91,6 +91,12 @@ __attribute__((always_inline)) static int trace_rmdir(struct pt_regs *ctx, struc
 
     if (!match(data_cache, FILTER_SRC))
         return 0;
+
+#ifdef DEBUG
+    bpf_printk("rmdir_e: ino=%ld/mnt_id=%d",
+               data_cache->fs_event.src_inode,
+               data_cache->fs_event.src_mount_id);
+#endif
 
     bpf_map_update_elem(&dentry_cache, &key, data_cache, BPF_ANY);
     return 0;
@@ -108,7 +114,13 @@ __attribute__((always_inline)) static int trace_rmdir_ret(struct pt_regs *ctx)
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache, &key);
     if (!data_cache)
         return 0;
+
     data_cache->fs_event.retval = PT_REGS_RC(ctx);
+
+#ifdef DEBUG
+    bpf_printk("rmdir_x: ret=%d",
+               data_cache->fs_event.retval);
+#endif
 
     resolve_paths(ctx, data_cache, RESOLVE_SRC | EMIT_EVENT);
     bpf_map_delete_elem(&dentry_cache, &key);

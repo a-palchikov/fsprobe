@@ -25,11 +25,17 @@ __attribute__((always_inline)) static int match_src(struct dentry_cache_t *data_
 {
     // Look for the inode in the cached_inodes map
     if (bpf_map_lookup_elem(&inodes_filter, &data_cache->fs_event.src_inode) == NULL) {
+        //if (data_cache->fs_event.src_mount_id == 253) {
+        //    bpf_printk("filter(src): unmatched on ino=%ld, trying parent.", data_cache->fs_event.src_inode);
+        //}
         // Look for the parent inode
         struct dentry *d_parent;
         bpf_probe_read(&d_parent, sizeof(d_parent), &data_cache->src_dentry->d_parent);
         u32 ino = get_dentry_ino(d_parent);
         if (bpf_map_lookup_elem(&inodes_filter, &ino) == NULL) {
+            //if (data_cache->fs_event.src_mount_id == 253) {
+            //    bpf_printk("filter(src): unmatched on par.ino=%ld.", ino);
+            //}
             return 0;
         }
     }

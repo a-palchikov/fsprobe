@@ -95,11 +95,9 @@ int kprobe_link_path_walk(struct pt_regs *ctx) {
                 syscall->open.file.path_key.mount_id = get_path_mount_id(base_path);
                 syscall->open.file.path_key.ino = get_path_dentry_ino(base_path);
 #ifdef DEBUG
-                if (syscall->open.file.path_key.mount_id == 253) {
-                    bpf_printk("link_path_walk_e: open, base dir mnt_id=%ld/ino=%ld.",
-                               syscall->open.file.path_key.mount_id,
-                               syscall->open.file.path_key.ino);
-                    }
+                bpf_printk("link_path_walk_e: open, base dir mnt_id=%ld/ino=%ld.",
+                           syscall->open.file.path_key.mount_id,
+                           syscall->open.file.path_key.ino);
 #endif
             }
             break;

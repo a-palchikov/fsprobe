@@ -5,7 +5,7 @@ go 1.17
 require (
 	github.com/DataDog/gopsutil v0.0.0-20200624212600-1b53412ef321
 	github.com/Gui774ume/ebpf v0.0.0-20200411100314-4233cdb60f05
-	github.com/google/go-cmp v0.2.0
+	github.com/hashicorp/golang-lru v0.5.4
 	github.com/pkg/errors v0.9.1
 	github.com/shuLhan/go-bindata v4.0.0+incompatible
 	github.com/sirupsen/logrus v1.6.0
@@ -29,4 +29,4 @@ require (
 	gopkg.in/yaml.v2 v2.3.0 // indirect
 )
 
-replace github.com/Gui774ume/ebpf => github.com/a-palchikov/ebpf v0.0.0-20211227225143-47ddcbc19f82
+replace github.com/Gui774ume/ebpf => github.com/a-palchikov/ebpf v0.0.0-20220111164015-d05e28019a42

@@ -76,13 +76,11 @@ func runFSProbeCmd(cmd *cobra.Command, args []string) error {
 }
 
 func initLogging() {
-	logrus.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp:          true,
-		TimestampFormat:        "2006-01-02T15:04:05Z",
-		DisableLevelTruncation: true,
+	logrus.SetFormatter(&utils.TextFormatter{
+		DisableTimestamp: options.Systemd,
 	})
 	logrus.SetOutput(os.Stdout)
-	logrus.SetLevel(logrus.InfoLevel)
+	logrus.SetLevel(logrus.WarnLevel)
 	if options.Verbose {
 		logrus.SetLevel(logrus.DebugLevel)
 	}

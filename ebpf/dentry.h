@@ -305,6 +305,8 @@ __attribute__((always_inline)) static void embed_pathname(struct path_key_t *bas
         bpf_probe_read_str(&value->name, sizeof(value->name), (void *)cache->target_pathname);
     }
 #ifdef DEBUG
+    bpf_printk("embed_path: name=%s, ino=%ld/mnt_id=%d.",
+               value->name, key.ino, key.mount_id);
     bpf_printk("embed_path: parent=ino:%ld/mnt_id=%d (%ld/%d).",
                value->parent.ino, value->parent.mount_id,
                key.ino, key.mount_id);
@@ -346,6 +348,8 @@ __attribute__((always_inline)) static int resolve_paths(void *ctx, struct dentry
         if (cache->fs_event.event == EVENT_RENAME || cache->fs_event.event == EVENT_LINK) {
             // Make sure to resolve the new inode regardless of the cache
             bpf_map_delete_elem(&path_fragments, &key);
+            //bpf_printk("resolve_paths: remove entry for ino=%ld/mnt_id=%d",
+            //           key.ino, key.mount_id);
         }
         if (cache->target_pathname) {
             embed_pathname(&key, cache, flag&RESOLVE_TARGET);
@@ -363,7 +367,17 @@ __attribute__((always_inline)) static int resolve_paths(void *ctx, struct dentry
 __attribute__((always_inline)) static void reset_cache_entry(struct dentry_cache_t *data_cache) {
     data_cache->fs_event.src_path_key = 0;
     data_cache->fs_event.target_path_key = 0;
+    data_cache->fs_event.mode = 0;
+    data_cache->fs_event.flags = 0;
     data_cache->cursor = 0;
+    data_cache->pathname = 0;
+    data_cache->target_pathname = 0;
 }
+
+//__attribute__((always_inline)) static int is_null_path_key(struct path_key_t *key) {
+//    if (key->inode == 0 && key->mount_id == 0)
+//        return 1;
+//    return 0;
+//}
 
 #endif

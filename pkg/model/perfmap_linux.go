@@ -85,7 +85,7 @@ func (pm *PerfMap) listen(wg *sync.WaitGroup) {
 			// Prepare event
 			event, err := ParseFSEvent(sample.Data, pm.monitor)
 			if err != nil {
-				logrus.WithError(err).Warn("Failed to parse FSEvent.")
+				logrus.WithError(err).Debug("Failed to parse FSEvent.")
 				continue
 			}
 			pm.DataHandler.Handle(pm.monitor, event)

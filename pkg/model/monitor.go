@@ -26,7 +26,7 @@ import (
 // Monitor - Base monitor
 type Monitor struct {
 	ResolutionModeMaps []string
-	DentryResolver     *PathFragmentsResolver
+	DentryResolver     *PathResolver
 	FSProbe            FSProbe
 	InodeFilterSection string
 	Name               string
@@ -71,7 +71,7 @@ func (m *Monitor) Configure() {
 		}
 	}
 	// Setup dentry resolver
-	m.DentryResolver, _ = NewPathFragmentsResolver(m)
+	m.DentryResolver, _ = NewPathResolver(m)
 }
 
 // GetName - Returns the name of the monitor

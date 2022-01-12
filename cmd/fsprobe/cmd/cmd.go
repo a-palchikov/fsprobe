@@ -133,6 +133,12 @@ stdout`)
 		"",
 		false,
 		`Output version information and exit`)
+	FSProbeCmd.Flags().BoolVarP(
+		&options.Systemd,
+		"systemd",
+		"",
+		false,
+		`Set up logging from a systemd unit`)
 }
 
 func printVersion() error {

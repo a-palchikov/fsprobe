@@ -48,6 +48,7 @@ int __attribute__((always_inline)) trace__sys_rename_ret(struct pt_regs *ctx) {
     struct dentry_cache_t *data_cache = bpf_map_lookup_elem(&dentry_cache_builder, &cpu);
     if (!data_cache)
         return 0;
+    reset_cache_entry(data_cache);
 
     fill_process_data(&data_cache->fs_event.process_data);
     data_cache->fs_event.retval = ret;
@@ -102,6 +103,7 @@ __attribute__((always_inline)) static int trace_rename(struct pt_regs *ctx, stru
     if (!data_cache)
         return 0;
     reset_cache_entry(data_cache);
+
     u64 key = fill_process_data(&data_cache->fs_event.process_data);
     data_cache->fs_event.event = EVENT_RENAME;
     data_cache->fs_event.src_inode = get_dentry_ino(old_dentry);
@@ -144,7 +146,8 @@ __attribute__((always_inline)) static int trace_rename_ret(struct pt_regs *ctx)
 
 #ifdef DEBUG
     bpf_printk("vfs_rename_x: ret=%d", data_cache->fs_event.retval);
-    bpf_printk("vfs_rename_x: src(ino=%ld/mnt_id=%d)",
+    bpf_printk("vfs_rename_x: src(key=%ld/ino=%ld/mnt_id=%d)",
+               data_cache->fs_event.src_path_key,
                data_cache->fs_event.src_inode,
                data_cache->fs_event.src_mount_id);
     bpf_printk("vfs_rename_x: tgt(ino=%ld/mnt_id=%d)",

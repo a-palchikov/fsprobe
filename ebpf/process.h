@@ -33,6 +33,7 @@ struct process_ctx_t
 // fill_process_data - Fills the provided process_ctx_t with the process context available from eBPF
 __attribute__((always_inline)) static u64 fill_process_data(struct process_ctx_t *data)
 {
+    data->timestamp = bpf_ktime_get_ns();
     // Comm
     bpf_get_current_comm(&data->comm, sizeof(data->comm));
 

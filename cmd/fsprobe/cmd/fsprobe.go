@@ -83,10 +83,16 @@ func initLogging() {
 		enc.AppendString(t.UTC().Format("2006-01-02T15:04:05Z0700"))
 	})
 	encoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	if options.Systemd {
+		encoderConfig.TimeKey = ""
+	}
 
-	core := zapcore.NewCore(zapcore.NewConsoleEncoder(encoderConfig), os.Stdout, zap.DebugLevel)
+	level := zap.WarnLevel
+	if options.Verbose {
+		level = zap.DebugLevel
+	}
+	core := zapcore.NewCore(zapcore.NewConsoleEncoder(encoderConfig), os.Stdout, level)
 	logger := zap.New(core,
-		// this mimics the behavior of NewProductionConfig.Build
 		zap.ErrorOutput(os.Stderr),
 		zap.AddCaller(),
 	)

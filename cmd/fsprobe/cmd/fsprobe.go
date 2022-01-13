@@ -77,7 +77,7 @@ func runFSProbeCmd(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func initLogging() {
+func initLogging() *zap.Logger {
 	encoderConfig := zap.NewProductionEncoderConfig()
 	encoderConfig.EncodeTime = zapcore.TimeEncoder(func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
 		enc.AppendString(t.UTC().Format("2006-01-02T15:04:05Z0700"))
@@ -97,6 +97,7 @@ func initLogging() {
 		zap.AddCaller(),
 	)
 	zap.ReplaceGlobals(logger)
+	return logger
 }
 
 // sanitizeOptions - Sanitizes the provided options

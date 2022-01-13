@@ -27,7 +27,7 @@ import (
 
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 
 	"github.com/Gui774ume/ebpf"
 	"github.com/Gui774ume/fsprobe/pkg/utils"
@@ -115,9 +115,9 @@ func (r PathKey) String() string {
 	return fmt.Sprintf("%d/%d", r.mountID, r.inode)
 }
 
-// Resolve - Resolves a pathname from the provided mount id and inode
+// ResolveWithFallback - Resolves a pathname from the provided mount id and inode
 // Assumes that mountID != 0 && inode != 0
-func (r *PathResolver) Resolve(leaf PathKey) (pathname string, err error) {
+func (r *PathResolver) ResolveWithFallback(leaf PathKey) (pathname string, err error) {
 	if pathname, err = r.resolveFromCache(leaf); err != nil {
 		if pathname, err = r.resolveFromMap(leaf); err != nil {
 			return "", err
@@ -126,7 +126,9 @@ func (r *PathResolver) Resolve(leaf PathKey) (pathname string, err error) {
 	return r.resolveWithMount(leaf.mountID, pathname), nil
 }
 
-func (r *PathResolver) ResolveAdaptive(leaf PathKey) (pathname string, err error) {
+// Resolve - Resolves a pathname from the provided mount id and inode
+// Assumes that mountID != 0 && inode != 0
+func (r *PathResolver) Resolve(leaf PathKey) (pathname string, err error) {
 	var path *pathEntry
 	var depth int64
 	var keys []PathKey
@@ -134,10 +136,7 @@ func (r *PathResolver) ResolveAdaptive(leaf PathKey) (pathname string, err error
 	var resolutionErr error
 	var absolutePath bool
 
-	log := logrus.New()
-	//log.SetLevel(logrus.DebugLevel)
-	//log.SetOutput(os.Stdout)
-	logger := log.WithField("key", leaf)
+	logger := zap.L().With(zap.String("key", leaf.String()))
 	logger.Debug("Resolve path.")
 
 	key := leaf
@@ -147,7 +146,7 @@ func (r *PathResolver) ResolveAdaptive(leaf PathKey) (pathname string, err error
 		path, err = r.lookupInodeFromCache(key)
 		if err != nil {
 			if !errors.Is(err, ErrEntryNotFound) {
-				logger.WithError(err).Debug("Failed to look up the key.")
+				logger.Debug("Failed to look up the key.", zap.Error(err))
 				break
 			}
 			logger.Debug("Key not found in cache, fall back to map.")
@@ -168,7 +167,7 @@ func (r *PathResolver) ResolveAdaptive(leaf PathKey) (pathname string, err error
 				break
 			}
 			path = r.newPathEntryFromPool(pathLeaf.parent, pathLeaf.GetString())
-			logger.WithField("path", path).Debug("New path elem.")
+			logger.Debug("New path elem.", zap.String("path", path.String()))
 		}
 
 		// Do not cache fake path keys in the case of rename events.
@@ -197,7 +196,7 @@ func (r *PathResolver) ResolveAdaptive(leaf PathKey) (pathname string, err error
 			// syscall. Need a way to normalize upon receiving
 			pathname = "/" + path.name + pathname
 		}
-		logger.Debug("Pathname: ", pathname)
+		logger.Debug("Running pathname", zap.String("path", pathname))
 
 		if path.parent.inode == 0 {
 			break
@@ -205,7 +204,7 @@ func (r *PathResolver) ResolveAdaptive(leaf PathKey) (pathname string, err error
 
 		// Prepare next key
 		key = path.parent
-		logger = log.WithField("key", key)
+		logger = zap.L().With(zap.String("key", key.String()))
 		logger.Debug("Move to next key.")
 	}
 

@@ -21,8 +21,6 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/sirupsen/logrus"
-
 	"github.com/Gui774ume/fsprobe/pkg/fsprobe"
 	"github.com/Gui774ume/fsprobe/pkg/model"
 )
@@ -98,7 +96,7 @@ func pollLost(lostChan chan *model.LostEvt) {
 		if !ok {
 			return
 		}
-		logrus.Warnf("lost %v events from %v", evt.Count, evt.Map)
+		//logrus.Warnf("lost %v events from %v", evt.Count, evt.Map)
 		break
 	}
 }

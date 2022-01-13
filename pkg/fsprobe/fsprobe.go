@@ -31,7 +31,7 @@ import (
 
 	"github.com/DataDog/gopsutil/host"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 	"golang.org/x/sys/unix"
 
 	"github.com/Gui774ume/ebpf"
@@ -62,7 +62,7 @@ func NewFSProbeWithOptions(options model.FSProbeOptions) *FSProbe {
 		Max: math.MaxUint64,
 	})
 	if err != nil {
-		logrus.Errorln("WARNING: Failed to adjust RLIMIT_MEMLOCK limit, loading eBPF maps might fail")
+		zap.L().Warn("Failed to adjust RLIMIT_MEMLOCK limit, loading eBPF maps might fail.")
 	}
 	return &FSProbe{
 		options: options,
@@ -159,13 +159,13 @@ func (fsp *FSProbe) Stop() error {
 	// 1) Stop monitors
 	for _, p := range fsp.monitors {
 		if err := p.Stop(); err != nil {
-			logrus.Errorf("couldn't stop monitor (Ctrl+C to abort): %v", p.GetName(), err)
+			zap.L().Warn("Failed to stop monitor (Ctrl+C to abort)", zap.String("name", p.GetName()), zap.Error(err))
 		}
 	}
 	// 2) Close eBPF programs
 	if fsp.collection != nil {
 		if errs := fsp.collection.Close(); len(errs) > 0 {
-			logrus.Errorf("couldn't close collection gracefully: %v", errs)
+			zap.L().Warn("Failed to close collection gracefully", zap.Errors("errors", errs))
 		}
 	}
 	// 3) Wait for all goroutine to stop
@@ -207,14 +207,14 @@ func (fsp *FSProbe) startMonitors() error {
 	// Init monitors
 	for _, p := range fsp.monitors {
 		if err := p.Init(fsp); err != nil {
-			logrus.Errorf("failed to init monitor %s: %v", p.GetName(), err)
+			zap.L().Warn("Failed to init monitor", zap.String("name", p.GetName()), zap.Error(err))
 			return err
 		}
 	}
 	// Start monitors
 	for _, p := range fsp.monitors {
 		if err := p.Start(); err != nil {
-			logrus.Errorf("failed to start monitor %s: %v", p.GetName(), err)
+			zap.L().Warn("Failed to start monitor", zap.String("name", p.GetName()), zap.Error(err))
 			return err
 		}
 	}
@@ -257,7 +257,7 @@ func (fsp *FSProbe) addTopLevelWatch(paths ...string) error {
 			return errors.Wrapf(err, "failed to stat %s", path)
 		}
 		if fi == nil {
-			logrus.WithField("path", path).Debug("Skip non-existing path.")
+			zap.L().Debug("Skip non-existing path.", zap.String("path", path))
 			continue
 		}
 		if fi.IsDir() {
@@ -275,7 +275,7 @@ func (fsp *FSProbe) addTopLevelWatch(paths ...string) error {
 				if f.IsDir() {
 					// Add inode in cache
 					fsp.watchInode(uint32(stat.Ino), fullPath)
-					logrus.WithField("path", fullPath).WithField("ino", uint32(stat.Ino)).Debug("Set up watch.")
+					zap.L().Debug("Set up watch.", zap.String("path", fullPath), zap.Uint32("ino", uint32(stat.Ino)))
 				}
 			}
 			// Add the directory itself to the list of watched files
@@ -283,7 +283,7 @@ func (fsp *FSProbe) addTopLevelWatch(paths ...string) error {
 			if !ok {
 				continue
 			}
-			logrus.WithField("path", path).WithField("ino", uint32(stat.Ino)).Debug("Set up watch.")
+			zap.L().Debug("Set up watch.", zap.String("path", path), zap.Uint32("ino", uint32(stat.Ino)))
 			fsp.watchInode(uint32(stat.Ino), path)
 
 		}
@@ -297,10 +297,7 @@ func (fsp *FSProbe) addRecursiveWatch(paths ...string) error {
 	for _, path := range paths {
 		err = filepath.Walk(path, func(walkPath string, fi os.FileInfo, err error) error {
 			if err != nil {
-				logrus.WithFields(logrus.Fields{
-					logrus.ErrorKey: err,
-					"path":          walkPath,
-				}).Warn("Failed to add watch.")
+				zap.L().Warn("Failed to add watch.", zap.String("path", walkPath), zap.Error(err))
 				return nil
 			}
 			stat, ok := fi.Sys().(*syscall.Stat_t)
@@ -323,11 +320,7 @@ func (fsp *FSProbe) watchInode(inode uint32, path string) {
 	for _, m := range fsp.monitors {
 		// Add inode filter
 		if err := m.AddInodeFilter(inode, path); err != nil {
-			logrus.WithFields(logrus.Fields{
-				logrus.ErrorKey: err,
-				"inode":         inode,
-				"path":          path,
-			}).Warn("Failed to watch inode.")
+			zap.L().Warn("Failed to watch inode.", zap.Uint32("ino", inode), zap.String("path", path), zap.Error(err))
 			continue
 		}
 	}
@@ -367,7 +360,10 @@ func (fsp *FSProbe) EditEBPFConstants(spec *ebpf.CollectionSpec) error {
 						return fmt.Errorf("couldn't rewrite symbol %s in program %s: unknown symbol", constant, probe.SectionName)
 					}
 					if err := editor.RewriteConstant(constant, value); err != nil {
-						logrus.Warnf("couldn't rewrite symbol %s in program %s: %v", constant, probe.SectionName, err)
+						zap.L().Warn("Failed to rewrite symbol in program",
+							zap.String("sym", constant),
+							zap.String("program", probe.SectionName),
+							zap.Error(err))
 					}
 				}
 			}

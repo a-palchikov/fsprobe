@@ -21,7 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 
 	"github.com/Gui774ume/ebpf"
 	"github.com/Gui774ume/fsprobe/pkg/model"
@@ -344,7 +344,7 @@ type openFlag = model.OpenFlag
 // that were never created for failed events.
 func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 	// Take cleanup actions on the cache
-	logger := logrus.WithFields(model.FieldsForEvent(event))
+	logger := zap.L().With(model.FieldsForEvent(event)...)
 	logger.Debug("New event.")
 	var matched bool
 	switch event.EventType {
@@ -383,18 +383,9 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 	monitor.Options.EventChan <- event
 }
 
-// maybeAddInodeFilter adds a new inode filter at the specified path
-// if the path matches one of the filters.
-// Returns true for a match, false - otherwise
-func (r *FSEventHandler) maybeAddInodeFilter(monitor *model.Monitor, inode uint32, path string, logger logrus.FieldLogger) error {
-	err := monitor.AddInodeFilter(inode, path)
-	logger.WithError(err).Info("Added new inode filter.")
-	return err
-}
-
 func removeCacheEntry(key model.PathKey, m *model.Monitor) error {
 	if !key.HasFakeInode() {
-		logrus.WithField("key", key.String()).Debug("Removing cache entry.")
+		zap.L().Debug("Removing cache entry.", zap.String("key", key.String()))
 	}
 	return m.DentryResolver.Remove(key)
 }

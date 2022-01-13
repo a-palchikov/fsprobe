@@ -19,10 +19,12 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/Gui774ume/fsprobe/pkg/fsprobe"
 	"github.com/Gui774ume/fsprobe/pkg/fsprobe/monitor/fs"
@@ -76,14 +78,19 @@ func runFSProbeCmd(cmd *cobra.Command, args []string) error {
 }
 
 func initLogging() {
-	logrus.SetFormatter(&utils.TextFormatter{
-		DisableTimestamp: options.Systemd,
+	encoderConfig := zap.NewProductionEncoderConfig()
+	encoderConfig.EncodeTime = zapcore.TimeEncoder(func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
+		enc.AppendString(t.UTC().Format("2006-01-02T15:04:05Z0700"))
 	})
-	logrus.SetOutput(os.Stdout)
-	logrus.SetLevel(logrus.WarnLevel)
-	if options.Verbose {
-		logrus.SetLevel(logrus.DebugLevel)
-	}
+	encoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+
+	core := zapcore.NewCore(zapcore.NewConsoleEncoder(encoderConfig), os.Stdout, zap.DebugLevel)
+	logger := zap.New(core,
+		// this mimics the behavior of NewProductionConfig.Build
+		zap.ErrorOutput(os.Stderr),
+		zap.AddCaller(),
+	)
+	zap.ReplaceGlobals(logger)
 }
 
 // sanitizeOptions - Sanitizes the provided options

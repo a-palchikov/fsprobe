@@ -1,7 +1,7 @@
 package model
 
 import (
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 )
 
 // Start - Starts the monitor
@@ -16,14 +16,14 @@ func (m *Monitor) Start() error {
 				depends[d.Name] = d
 			}
 			if err := p.Start(); err != nil {
-				logrus.WithError(err).WithField("name", p.Name).Warn("Failed to start probe.")
+				zap.L().Warn("Failed to start probe.", zap.Error(err), zap.String("name", p.Name))
 				return err
 			}
 		}
 	}
 	for _, p := range depends {
 		if err := p.Start(); err != nil {
-			logrus.WithError(err).WithField("name", p.Name).Warn("Failed to start probe.")
+			zap.L().Warn("Failed to start probe.", zap.Error(err), zap.String("name", p.Name))
 			return err
 		}
 	}
@@ -42,14 +42,14 @@ func (m *Monitor) Stop() error {
 	for _, probes := range m.Probes {
 		for _, p := range probes {
 			if err := p.Stop(); err != nil {
-				logrus.Errorf("couldn't stop probe \"%s\": %v", p.Name, err)
+				zap.L().Error("Failed to stop probe", zap.String("name", p.Name), zap.Error(err))
 			}
 		}
 	}
 	// stop polling perf maps
 	for _, pm := range m.PerfMaps {
 		if err := pm.pollStop(); err != nil {
-			logrus.Errorf("couldn't close perf map %v gracefully: %v", pm.PerfOutputMapName, err)
+			zap.L().Error("Failed to gracefully close perf map", zap.String("name", pm.PerfOutputMapName), zap.Error(err))
 		}
 	}
 	return nil

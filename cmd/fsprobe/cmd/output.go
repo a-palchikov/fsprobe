@@ -146,7 +146,7 @@ func NewTableOutput(writer io.Writer) TableOutput {
 	out := TableOutput{
 		output: writer,
 		fmt:    "%7v %7v %6v %6v %6v %6v %16v %6v %7v %6v %6v %16v %s\n",
-		tsFmt:  "3:04PM",
+		tsFmt:  "15:04:05.000000000",
 	}
 	out.PrintHeader()
 	return out

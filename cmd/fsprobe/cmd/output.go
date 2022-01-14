@@ -23,7 +23,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 
 	"github.com/Gui774ume/fsprobe/pkg/model"
 )
@@ -67,14 +67,14 @@ func (o *Output) Callback() {
 			if !ok {
 				return
 			}
-			logrus.Warnf("lost %v events from %v", lost.Count, lost.Map)
+			zap.L().Warn("Lost events", zap.Uint64("count", lost.Count), zap.String("map", lost.Map))
 		case evt, ok := <-o.EvtChan:
 			if !ok {
 				return
 			}
 			// Handle event
 			if err := o.writer.Write(evt); err != nil {
-				logrus.WithError(err).Error("Failed to write event to output.")
+				zap.L().Debug("Failed to write event to output.", zap.Error(err))
 			}
 		}
 	}

@@ -20,12 +20,10 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 
 	"github.com/Gui774ume/ebpf"
 )
-
-
 
 // Init - Initializes perfmap
 func (pm *PerfMap) Init(m *Monitor, dataHandler DataHandler) error {
@@ -85,7 +83,7 @@ func (pm *PerfMap) listen(wg *sync.WaitGroup) {
 			// Prepare event
 			event, err := ParseFSEvent(sample.Data, pm.monitor)
 			if err != nil {
-				logrus.WithError(err).Debug("Failed to parse FSEvent.")
+				zap.L().Debug("Failed to parse FSEvent.", zap.Error(err))
 				continue
 			}
 			pm.DataHandler.Handle(pm.monitor, event)

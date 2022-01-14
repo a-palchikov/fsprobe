@@ -16,7 +16,7 @@ limitations under the License.
 package model
 
 import (
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 
 	"github.com/Gui774ume/ebpf"
 )
@@ -60,7 +60,7 @@ func (p *Probe) Start() error {
 		if err := collection.EnableTracepoint(p.SectionName); err != nil {
 			return err
 		}
-		logrus.WithField("name", p.Name).Debug("Started tracepoint.")
+		zap.L().Debug("Started tracepoint.", zap.String("name", p.Name))
 	case ebpf.Kprobe:
 		maxActive := -1
 		if p.KProbeMaxActive != 0 {
@@ -69,7 +69,7 @@ func (p *Probe) Start() error {
 		if err := collection.EnableKprobe(p.SectionName, maxActive); err != nil {
 			return err
 		}
-		logrus.WithField("name", p.Name).Debug("Started kprobe.")
+		zap.L().Debug("Started kprobe.", zap.String("name", p.Name))
 	}
 	return nil
 }

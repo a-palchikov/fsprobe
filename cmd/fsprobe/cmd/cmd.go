@@ -35,7 +35,8 @@ var FSProbeCmd = &cobra.Command{
 FSProbe relies on eBPF to capture file system events on dentry kernel structures.
 More information about the project can be found on github: https://github.com/Gui774ume/fsprobe`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		initLogging()
+		logger := initLogging()
+		defer logger.Sync()
 		if options.Version {
 			return printVersion()
 		}

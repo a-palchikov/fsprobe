@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 
 	"github.com/Gui774ume/fsprobe/pkg/utils"
 )
@@ -119,8 +119,11 @@ func ParseFSEvent(data []byte, monitor *Monitor) (*FSEvent, error) {
 	if err != nil {
 		return nil, err
 	}
+	fields := append([]zap.Field{zap.Error(err)}, FieldsForEvent(evt)...)
 	if err := resolvePaths(data, evt, monitor, read); err != nil {
-		logrus.WithError(err).WithFields(FieldsForEvent(evt)).Debug("Failed to resolve paths for event.")
+		zap.L().Debug("Failed to resolve paths for event.",
+			fields...,
+		)
 		return nil, err
 	}
 	return evt, nil
@@ -128,33 +131,29 @@ func ParseFSEvent(data []byte, monitor *Monitor) (*FSEvent, error) {
 
 // resolvePaths - Resolves the paths of the event according to the configured method
 func resolvePaths(data []byte, evt *FSEvent, monitor *Monitor, read int) (err error) {
-	logger := logrus.WithFields(logrus.Fields{
-		"type": evt.EventType,
-		"comm": evt.Comm,
-	})
+	logger := zap.L().With(
+		zap.String("type", evt.EventType),
+		zap.String("comm", evt.Comm),
+	)
 	key := evt.SrcPathKey()
 	if key.IsNull() {
 		logger.Debug("Invalid mountID/inode tuple.")
 		return nil
 	}
-	//evt.SrcFilename, err = monitor.DentryResolver.Resolve(key)
-	evt.SrcFilename, err = monitor.DentryResolver.ResolveAdaptive(key)
+	evt.SrcFilename, err = monitor.DentryResolver.Resolve(key)
 	if err != nil {
 		return errors.Wrap(err, "failed to resolve src dentry path")
 	}
 	switch evt.EventType {
 	case Link, Rename:
 		targetKey := evt.TargetPathKey()
-		//evt.TargetFilename, err = monitor.DentryResolver.Resolve(targetKey)
-		evt.TargetFilename, err = monitor.DentryResolver.ResolveAdaptive(targetKey)
+		evt.TargetFilename, err = monitor.DentryResolver.Resolve(targetKey)
 		if err != nil {
 			return errors.Wrap(err, "failed to resolve target dentry path")
 		}
 		if evt.EventType == Link {
 			// Remove cache entry for link events
 			_ = monitor.DentryResolver.Remove(targetKey)
-			// TODO(dima): why double delete?
-			//_ = monitor.DentryResolver.RemoveInode(evt.TargetMountID, evt.TargetInode)
 		}
 	}
 	return nil
@@ -317,18 +316,18 @@ func (fs FSEvent) TargetPathKey() PathKey {
 	return NewPathKey(inode, fs.TargetMountID)
 }
 
-func FieldsForEvent(event *FSEvent) logrus.Fields {
-	return logrus.Fields{
-		"path":       event.SrcFilename,
-		"type":       event.EventType,
-		"mnt_id":     event.SrcMountID,
-		"key":        event.SrcPathnameKey,
-		"tgt_mnt_id": event.TargetMountID,
-		"ino":        event.PrintInode(),
-		"tgt_ino":    event.TargetInode,
-		"tgt_key":    event.TargetPathnameKey,
-		"comm":       event.Comm,
-		"ret":        event.Retval,
-		"flags":      event.PrintFlags(),
+func FieldsForEvent(event *FSEvent) []zap.Field {
+	return []zap.Field{
+		zap.String("path", event.SrcFilename),
+		zap.String("type", event.EventType),
+		zap.Uint32("mnt_id", event.SrcMountID),
+		zap.Uint32("key", event.SrcPathnameKey),
+		zap.Uint32("tgt_mnt_id", event.TargetMountID),
+		zap.String("ino", event.PrintInode()),
+		zap.Uint64("tgt_ino", event.TargetInode),
+		zap.Uint32("tgt_key", event.TargetPathnameKey),
+		zap.String("comm", event.Comm),
+		zap.Int32("ret", event.Retval),
+		zap.String("flags", event.PrintFlags()),
 	}
 }

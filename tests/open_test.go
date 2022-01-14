@@ -21,7 +21,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 
 	"github.com/Gui774ume/fsprobe/pkg/fsprobe"
 	"github.com/Gui774ume/fsprobe/pkg/model"
@@ -98,7 +98,7 @@ func pollLost(lostChan chan *model.LostEvt) {
 		if !ok {
 			return
 		}
-		logrus.Warnf("lost %v events from %v", evt.Count, evt.Map)
+		zap.L().Warn("Lost events.", zap.Uint64("count", evt.Count), zap.String("map", evt.Map))
 		break
 	}
 }

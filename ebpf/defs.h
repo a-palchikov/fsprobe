@@ -3,6 +3,11 @@
 
 #include "bpf/bpf_helpers.h"
 
+//#define DEBUG 1
+#define DEBUG_OPEN
+#define DEBUG_MKDIR
+#define DEBUG_FILTER
+
 #define LOAD_CONSTANT(param, var) asm("%0 = " param " ll" : "=r"(var))
 
 #if defined(__x86_64__)
@@ -248,7 +253,7 @@ enum file_flags {
 struct path_key_t {
     u64 ino;
     u32 mount_id;
-    u32 path_id;
+    u32 padding; // unused, aligns on 8-byte boundary
 };
 
 struct ktimeval {

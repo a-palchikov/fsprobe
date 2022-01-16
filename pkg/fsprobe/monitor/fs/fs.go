@@ -325,16 +325,14 @@ func LostFSEvent(count uint64, mapName string, monitor *model.Monitor) {
 	}
 }
 
-func NewFSEventHandler(paths, pathAxes []string, mounts map[int]utils.MountInfo) (*FSEventHandler, error) {
+func NewFSEventHandler(pathAxes []ResolvedPath) (*FSEventHandler, error) {
 	return &FSEventHandler{
-		pathAxes: resolveMounts(pathAxes, mounts),
-		paths:    paths,
+		pathAxes: pathAxes,
 	}, nil
 }
 
 type FSEventHandler struct {
-	pathAxes []resolvedPath
-	paths    []string
+	pathAxes []ResolvedPath
 }
 
 type openFlag = model.OpenFlag
@@ -404,11 +402,11 @@ func (r *FSEventHandler) matches(mountID int, path string) bool {
 	return false
 }
 
-// resolveMounts maps the most specific mount to each path in paths.
+// ResolveMounts maps the most specific mount to each path in paths.
 // It uses prefix matching instead of stat since the paths might be non-existent
 // at this point.
 // Returns the list of resulting mappings
-func resolveMounts(paths []string, mounts map[int]utils.MountInfo) (result []resolvedPath) {
+func ResolveMounts(paths []string, mounts map[int]utils.MountInfo) (result []ResolvedPath) {
 	// path -> most specific mountpoint
 	pathMap := make(map[string]utils.MountInfo, len(paths))
 	for _, p := range paths {
@@ -422,12 +420,12 @@ func resolveMounts(paths []string, mounts map[int]utils.MountInfo) (result []res
 	}
 	for path, mi := range pathMap {
 		mi := mi
-		result = append(result, resolvedPath{path: path, mi: mi})
+		result = append(result, ResolvedPath{path: path, mi: mi})
 	}
 	return result
 }
 
-func (r *resolvedPath) matches(mountID int, path string) bool {
+func (r *ResolvedPath) matches(mountID int, path string) bool {
 	if r.mi.MountID != mountID {
 		return false
 	}
@@ -441,7 +439,15 @@ func (r *resolvedPath) matches(mountID int, path string) bool {
 	return false
 }
 
-func (r resolvedPath) String() string {
+func (r ResolvedPath) Path() string {
+	return r.path
+}
+
+func (r ResolvedPath) MountID() int {
+	return r.mi.MountID
+}
+
+func (r ResolvedPath) String() string {
 	var b strings.Builder
 	fmt.Fprint(&b, "resolvedPath(")
 	fmt.Fprintf(&b, "mnt_id=%d,mntpoint=%s,path=%s",
@@ -450,21 +456,12 @@ func (r resolvedPath) String() string {
 	return b.String()
 }
 
-type resolvedPath struct {
+type ResolvedPath struct {
 	mi   utils.MountInfo
 	path string
 }
 
 func pathPrefix(path, prefix string) bool {
-	maybeAddSlash := func(path string) string {
-		if len(path) == 0 {
-			return string(filepath.Separator)
-		}
-		if path[len(path)-1] != filepath.Separator {
-			return path + string(filepath.Separator)
-		}
-		return path
-	}
 	switch {
 	case len(prefix) > len(path):
 		return false
@@ -473,6 +470,6 @@ func pathPrefix(path, prefix string) bool {
 	default:
 		// Since prefix is assumed to be a directory,
 		// add a slash for an exact match.
-		return strings.HasPrefix(path, maybeAddSlash(prefix))
+		return strings.HasPrefix(path, utils.MaybeAddSlash(prefix))
 	}
 }

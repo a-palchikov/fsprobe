@@ -86,8 +86,8 @@ __attribute__((always_inline)) static int trace_path_openat_ret(struct pt_regs *
     data_cache->fs_event.retval = PTR_ERR(file);
     //data_cache->fs_event.src_inode = syscall->open.file.path_key.ino;
     //data_cache->fs_event.src_mount_id = syscall->open.file.path_key.mount_id;
-    data_cache->fs_event.src_inode = get_path_dentry_ino(data_cache->path);
-    data_cache->fs_event.src_mount_id = get_path_mount_id(data_cache->path);
+    data_cache->fs_event.src_key.ino = get_path_dentry_ino(data_cache->path);
+    data_cache->fs_event.src_key.mount_id = get_path_mount_id(data_cache->path);
 
     // It seems that at least with EACCES, the path cached
     // upon entry into path_openat is not initialized enough
@@ -105,10 +105,12 @@ __attribute__((always_inline)) static int trace_path_openat_ret(struct pt_regs *
         return 0;
     }
 
-#ifdef DEBUG
-    bpf_printk("path_openat_x: match, resolve paths, ino=%ld, mnt_id=%d, ret=%d.",
-               data_cache->fs_event.src_inode,
-               data_cache->fs_event.src_mount_id,
+#ifdef DEBUG_OPEN
+    bpf_printk("path_openat_x: name=%s.",
+               syscall->open.pathname);
+    bpf_printk("path_openat_x: resolve paths, ino=%ld, mnt_id=%d, ret=%d.",
+               data_cache->fs_event.src_key.ino,
+               data_cache->fs_event.src_key.mount_id,
                PTR_ERR(file));
 #endif
 
@@ -131,17 +133,6 @@ __attribute__((always_inline)) static int trace_open(struct pt_regs *ctx, struct
     u64 key = fill_process_data(&data_cache->fs_event.process_data);
     data_cache->fs_event.event = EVENT_OPEN;
     data_cache->path = path;
-
-#ifdef DEBUG
-    struct nameidata *nd = (struct nameidata *)path;
-    int type;
-    bpf_probe_read(&type, sizeof(int), &nd->last_type);
-    if ((type == LAST_DOTDOT || type == LAST_DOT) && data_cache->fs_event.src_mount_id == 253) {
-        struct basename name = {};
-        get_dentry_name(dentry, &name, sizeof(name));
-        bpf_printk("vfs_open_e: .. or . (%d), name='%s'", type, name.name);
-    }
-#endif
 
     bpf_map_update_elem(&dentry_cache, &key, data_cache, BPF_ANY);
     return 0;
@@ -166,8 +157,8 @@ __attribute__((always_inline)) static int trace_open_ret(struct pt_regs *ctx)
     struct dentry *dentry;
     bpf_probe_read(&dentry, sizeof(struct dentry *), &data_cache->path->dentry);
     data_cache->src_dentry = dentry;
-    data_cache->fs_event.src_inode = get_dentry_ino(dentry);
-    data_cache->fs_event.src_mount_id = get_path_mount_id(data_cache->path);
+    data_cache->fs_event.src_key.ino = get_dentry_ino(dentry);
+    data_cache->fs_event.src_key.mount_id = get_path_mount_id(data_cache->path);
 
     if (!match(data_cache, FILTER_SRC)) {
         // Clean up the dentry cache since the matching is in
@@ -176,10 +167,10 @@ __attribute__((always_inline)) static int trace_open_ret(struct pt_regs *ctx)
         return 0;
     }
 
-#ifdef DEBUG
+#ifdef DEBUG_OPEN
     bpf_printk("vfs_open_x: resolve paths, ino=%ld, mnt_id=%d, ret=%d.",
-               data_cache->fs_event.src_inode,
-               data_cache->fs_event.src_mount_id,
+               data_cache->fs_event.src_key.ino,
+               data_cache->fs_event.src_key.mount_id,
                data_cache->fs_event.retval);
 #endif
 

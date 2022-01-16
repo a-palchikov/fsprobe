@@ -55,8 +55,8 @@ long __attribute__((always_inline)) trace__sys_rmdir_ret(struct pt_regs *ctx)
     fill_process_data(&data_cache->fs_event.process_data);
     data_cache->fs_event.retval = ret;
     data_cache->fs_event.event = EVENT_RMDIR;
-    data_cache->fs_event.src_mount_id = syscall->rmdir.file.path_key.mount_id;
-    data_cache->fs_event.src_inode = syscall->rmdir.file.path_key.ino;
+    data_cache->fs_event.src_key.ino = syscall->rmdir.file.path_key.ino;
+    data_cache->fs_event.src_key.mount_id = syscall->rmdir.file.path_key.mount_id;
 
     if (!match(data_cache, FILTER_SRC))
         return 0;
@@ -85,8 +85,8 @@ __attribute__((always_inline)) static int trace_rmdir(struct pt_regs *ctx, struc
 
     u64 key = fill_process_data(&data_cache->fs_event.process_data);
     data_cache->fs_event.event = EVENT_RMDIR;
-    data_cache->fs_event.src_inode = get_dentry_ino(dentry);
-    data_cache->fs_event.src_mount_id = syscall->rmdir.file.path_key.mount_id;
+    data_cache->fs_event.src_key.ino = get_dentry_ino(dentry);
+    data_cache->fs_event.src_key.mount_id = syscall->rmdir.file.path_key.mount_id;
     data_cache->src_dentry = dentry;
 
     if (!match(data_cache, FILTER_SRC))
@@ -94,8 +94,8 @@ __attribute__((always_inline)) static int trace_rmdir(struct pt_regs *ctx, struc
 
 #ifdef DEBUG
     bpf_printk("rmdir_e: ino=%ld/mnt_id=%d",
-               data_cache->fs_event.src_inode,
-               data_cache->fs_event.src_mount_id);
+               data_cache->fs_event.src_key.ino,
+               data_cache->fs_event.src_key.mount_id);
 #endif
 
     bpf_map_update_elem(&dentry_cache, &key, data_cache, BPF_ANY);

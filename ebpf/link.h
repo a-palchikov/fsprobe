@@ -55,10 +55,10 @@ int __attribute__((always_inline)) trace__sys_link_ret(struct pt_regs *ctx) {
     data_cache->fs_event.retval = ret;
     data_cache->fs_event.event = EVENT_LINK;
     // Store the inode/mount ID tuples for the base path
-    data_cache->fs_event.src_inode = syscall->link.src_file.path_key.ino;
-    data_cache->fs_event.src_mount_id = syscall->link.src_file.path_key.mount_id;
-    data_cache->fs_event.target_mount_id = syscall->link.target_file.path_key.mount_id;
-    data_cache->fs_event.target_inode = syscall->link.target_file.path_key.ino;
+    data_cache->fs_event.src_key.ino = syscall->link.src_file.path_key.ino;
+    data_cache->fs_event.src_key.mount_id = syscall->link.src_file.path_key.mount_id;
+    data_cache->fs_event.target_key.mount_id = syscall->link.target_file.path_key.mount_id;
+    data_cache->fs_event.target_key.ino = syscall->link.target_file.path_key.ino;
 
     struct dentry *src_dentry;
     bpf_probe_read(&src_dentry, sizeof(struct dentry *), &syscall->link.src_dentry);
@@ -74,11 +74,11 @@ int __attribute__((always_inline)) trace__sys_link_ret(struct pt_regs *ctx) {
 #ifdef DEBUG
     bpf_printk("do_linkat_x: ret=%d.", data_cache->fs_event.retval);
     bpf_printk("do_linkat_x: src(ino=%ld/mnt_id=%d).",
-               data_cache->fs_event.src_inode,
-               data_cache->fs_event.src_mount_id);
+               data_cache->fs_event.src_key.ino,
+               data_cache->fs_event.src_key.mount_id);
     bpf_printk("do_linkat_x: tgt(ino=%ld/mnt_id=%d).",
-               data_cache->fs_event.target_inode,
-               data_cache->fs_event.target_mount_id);
+               data_cache->fs_event.target_key.ino,
+               data_cache->fs_event.target_key.mount_id);
 #endif
 
     data_cache->pathname = syscall->link.src_pathname;
@@ -106,7 +106,7 @@ __attribute__((always_inline)) static int trace_link(struct pt_regs *ctx, struct
     reset_cache_entry(data_cache);
     u64 key = fill_process_data(&data_cache->fs_event.process_data);
     data_cache->fs_event.event = EVENT_LINK;
-    data_cache->fs_event.src_inode = get_dentry_ino(old_dentry);
+    data_cache->fs_event.src_key.ino = get_dentry_ino(old_dentry);
 
     // this is a hard link, source and target dentries are on the same filesystem & mount point
     // target_path was set by kprobe/filename_create before we reach this point.
@@ -146,8 +146,8 @@ __attribute__((always_inline)) static int trace_link_ret(struct pt_regs *ctx)
         return 0;
 
     data_cache->fs_event.retval = PT_REGS_RC(ctx);
-    data_cache->fs_event.target_inode = get_dentry_ino(data_cache->target_dentry);
-    data_cache->fs_event.target_mount_id = get_path_mount_id(syscall->link.target_path);
+    data_cache->fs_event.target_key.ino = get_dentry_ino(data_cache->target_dentry);
+    data_cache->fs_event.target_key.mount_id = get_path_mount_id(syscall->link.target_path);
 
     resolve_paths(ctx, data_cache, RESOLVE_TARGET | EMIT_EVENT);
     bpf_map_delete_elem(&dentry_cache, &key);

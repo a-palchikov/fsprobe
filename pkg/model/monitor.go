@@ -108,16 +108,16 @@ func (m *Monitor) Init(fs FSProbe) error {
 	return nil
 }
 
-func (m *Monitor) AddInodeFilter(inode uint32, path string) error {
+func (m *Monitor) AddInodeFilter(key PathKey) error {
 	// Add inode filter
 	filter := m.GetMap(m.InodeFilterSection)
 	if filter == nil {
 		return fmt.Errorf("invalid map %s", m.InodeFilterSection)
 	}
-	keyB := make([]byte, 4)
-	utils.ByteOrder.PutUint32(keyB, inode)
+	buf := make([]byte, 16)
+	key.Write(buf)
 	var valueB byte
-	if err := filter.Put(keyB, valueB); err != nil {
+	if err := filter.Put(buf, valueB); err != nil {
 		return err
 	}
 	return nil

@@ -26,12 +26,10 @@ struct fs_event_t
     int mode;
     u32 src_path_key;
     u32 target_path_key;
-    u64 src_inode;
+    struct path_key_t src_key;
+    struct path_key_t target_key;
     u32 src_path_length;
-    int src_mount_id;
-    u64 target_inode;
     u32 target_path_length;
-    int target_mount_id;
     int retval;
     u32 event;
 };
@@ -77,7 +75,7 @@ struct bpf_map_def SEC("maps/dentry_cache_builder") dentry_cache_builder = {
     .type = BPF_MAP_TYPE_ARRAY,
     .key_size = sizeof(u32),
     .value_size = sizeof(struct dentry_cache_t),
-    .max_entries = 16,
+    .max_entries = 32,
     .pinning = PIN_NONE,
     .namespace = "",
 };
@@ -98,7 +96,7 @@ struct bpf_map_def SEC("maps/dentry_open_cache_builder") dentry_open_cache_build
     .type = BPF_MAP_TYPE_ARRAY,
     .key_size = sizeof(u32),
     .value_size = sizeof(struct dentry_cache_t),
-    .max_entries = 16,
+    .max_entries = 32,
     .pinning = PIN_NONE,
     .namespace = "",
 };
@@ -124,25 +122,14 @@ struct bpf_map_def SEC("maps/path_fragment_builder") path_fragment_builder = {
     .type = BPF_MAP_TYPE_ARRAY,
     .key_size = sizeof(u32),
     .value_size = sizeof(struct path_fragment_t),
-    .max_entries = 16,
+    .max_entries = 32,
     .pinning = PIN_NONE,
     .namespace = "",
 };
 
-// PATH_BUFFER_SIZE - Size of the eBPF buffer used to build a file system event.
-// Make sure that there is a n for which PATH_BUFFER = 2**n + NAME_MAX
-// n must be chosen so that MAX_PATH + MAX_PATH / 2 < 2**n
-// 2**13 + NAME_MAX = 8192 + 255 = 8447
-#define PATH_BUFFER_SIZE 8447
-
-struct fs_event_wrapper_t {
-    struct fs_event_t evt;
-    char buff[PATH_BUFFER_SIZE];
-};
-
 struct bpf_map_def SEC("maps/inodes_filter") inodes_filter = {
     .type = BPF_MAP_TYPE_LRU_HASH,
-    .key_size = sizeof(u32),
+    .key_size = sizeof(struct path_key_t),
     .value_size = sizeof(u8),
     .max_entries = 120000,
     .pinning = PIN_NONE,

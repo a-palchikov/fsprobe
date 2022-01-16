@@ -118,8 +118,11 @@ func (r PathKey) String() string {
 // ResolveWithFallback - Resolves a pathname from the provided mount id and inode
 // Assumes that mountID != 0 && inode != 0
 func (r *PathResolver) ResolveWithFallback(leaf PathKey) (pathname string, err error) {
-	if pathname, err = r.resolveFromCache(leaf); err != nil {
-		if pathname, err = r.resolveFromMap(leaf); err != nil {
+	logger := zap.L().With(zap.String("key", leaf.String()))
+	logger.Debug("Resolve path.")
+
+	if pathname, err = r.resolveFromCache(leaf, logger); err != nil {
+		if pathname, err = r.resolveFromMap(leaf, logger); err != nil {
 			return "", err
 		}
 	}
@@ -274,7 +277,7 @@ func (r *PathResolver) resolveWithMount(mountID uint32, path string) string {
 	return path
 }
 
-func (r *PathResolver) resolveFromMap(key PathKey) (pathname string, err error) {
+func (r *PathResolver) resolveFromMap(key PathKey, logger *zap.Logger) (pathname string, err error) {
 	var cacheKey PathKey
 	var cacheEntry *pathEntry
 	var resolutionErr error
@@ -289,6 +292,7 @@ func (r *PathResolver) resolveFromMap(key PathKey) (pathname string, err error) 
 		if err = r.pathnames.Lookup(key, &path); err != nil {
 			pathname = ""
 			err = ErrDentryPathKeyNotFound{key: key}
+			logger.Debug("Failed to lookup in map.", zap.Error(err))
 			break
 		}
 		depth++
@@ -301,6 +305,7 @@ func (r *PathResolver) resolveFromMap(key PathKey) (pathname string, err error) 
 			} else {
 				resolutionErr = ErrKernelMapResolution{key: key}
 			}
+			logger.Debug("Resolution error.", zap.Error(resolutionErr))
 			break
 		}
 
@@ -311,9 +316,11 @@ func (r *PathResolver) resolveFromMap(key PathKey) (pathname string, err error) 
 			name = path.GetString()
 			pathname = "/" + name + pathname
 		}
+		logger.Debug("Running pathname", zap.String("path", pathname))
 
 		// do not cache fake path keys in the case of rename events
 		if !IsFakeInode(key.inode) {
+			logger.Debug("Add to cache.", zap.String("par", path.parent.String()), zap.String("name", name))
 			cacheEntry = r.newPathEntryFromPool(path.parent, name)
 
 			keys = append(keys, cacheKey)
@@ -321,11 +328,14 @@ func (r *PathResolver) resolveFromMap(key PathKey) (pathname string, err error) 
 		}
 
 		if path.parent.inode == 0 {
+			logger.Debug("Reached root, bail.")
 			break
 		}
 
 		// Prepare next key
 		key = path.parent
+		logger = zap.L().With(zap.String("key", key.String()))
+		logger.Debug("Move to next key.")
 	}
 
 	if len(pathname) == 0 {
@@ -350,7 +360,7 @@ func (r *PathResolver) resolveFromMap(key PathKey) (pathname string, err error) 
 }
 
 // resolveFromCache resolves a path from the cache
-func (r *PathResolver) resolveFromCache(key PathKey) (pathname string, err error) {
+func (r *PathResolver) resolveFromCache(key PathKey, logger *zap.Logger) (pathname string, err error) {
 	var path *pathEntry
 	var depth int64
 
@@ -358,6 +368,7 @@ func (r *PathResolver) resolveFromCache(key PathKey) (pathname string, err error
 	for i := 0; i <= maxPathDepth; i++ {
 		path, err = r.lookupInodeFromCache(key)
 		if err != nil {
+			logger.Debug("Failed to lookup in cache, bail.", zap.Error(err))
 			break
 		}
 		depth++
@@ -366,13 +377,17 @@ func (r *PathResolver) resolveFromCache(key PathKey) (pathname string, err error
 		if path.name[0] != '\x00' && path.name[0] != '/' {
 			pathname = "/" + path.name + pathname
 		}
+		logger.Debug("Running pathname", zap.String("path", pathname))
 
 		if path.parent.inode == 0 {
+			logger.Debug("Reached root, done.")
 			break
 		}
 
 		// Prepare next key
 		key = path.parent
+		logger = zap.L().With(zap.String("key", key.String()))
+		logger.Debug("Move to next key.")
 	}
 
 	if len(pathname) == 0 {

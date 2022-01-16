@@ -47,39 +47,22 @@ More information about the project can be found on github: https://github.com/Gu
 		return nil
 	},
 	SilenceUsage: true,
-	Example:      "sudo fsprobe /tmp",
+	Example:      "sudo fsprobe /tmp --path-filter /tmp/foo",
 }
 
 // options - CLI options
 var options CLIOptions
 
 func init() {
-	FSProbeCmd.Flags().StringSliceVar(
-		&options.FSOptions.Paths,
+	FSProbeCmd.Flags().StringVar(
+		&options.FSOptions.Path,
 		"path-filter",
-		nil,
-		`When specified, only event hits along this path will be generated.
-For each path filter, only top-level watches along the filter are added.
+		"",
+		`Event hits along this path are generated and
+only top-level watches along the filter are added.
 If a filter specifies a file, in the file's directory only the file
 will be watched (along with all files in all preceeding sub-directories).
 Filter can specify a path that does not yet exist`)
-	FSProbeCmd.Flags().BoolVarP(
-		&options.FSOptions.Recursive,
-		"recursive",
-		"r",
-		true,
-		`Watches all subdirectories of any directory passed as argument.
-Watches will be set up recursively to an unlimited depth.
-Symbolic links are not traversed. Newly created subdirectories
-will also be watched. When this option is not provided, only
-the immediate children of a provided directory are watched`)
-	FSProbeCmd.Flags().BoolVar(
-		&options.FSOptions.PathsFiltering,
-		"paths-filtering",
-		true,
-		`When activated, FSProbe will only notify events on the paths 
-provided to the Watch function. When deactivated, FSProbe
-will notify events on the entire file system`)
 	FSProbeCmd.Flags().BoolVar(
 		&options.FSOptions.FollowRenames,
 		"follow",

@@ -35,9 +35,9 @@ __attribute__((always_inline)) static int trace_setattr(struct pt_regs *ctx, str
     bpf_probe_read(&data_cache->fs_event.flags, sizeof(attr->ia_valid), &attr->ia_valid);
     bpf_probe_read(&data_cache->fs_event.mode, sizeof(attr->ia_mode), &attr->ia_mode);
 
-    data_cache->fs_event.src_inode = get_dentry_ino(dentry);
+    data_cache->fs_event.src_key.ino = get_dentry_ino(dentry);
     struct inode *inode = get_dentry_inode(dentry);
-    data_cache->fs_event.src_mount_id = get_inode_mount_id(inode);
+    data_cache->fs_event.src_key.mount_id = get_inode_mount_id(inode);
     data_cache->src_dentry = dentry;
 
     if (!match(data_cache, FILTER_SRC))

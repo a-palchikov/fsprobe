@@ -140,14 +140,14 @@ func resolvePaths(data []byte, evt *FSEvent, monitor *Monitor, read int) (err er
 		logger.Debug("Invalid mountID/inode tuple.")
 		return nil
 	}
-	evt.SrcFilename, err = monitor.DentryResolver.Resolve(key)
+	evt.SrcFilename, err = monitor.DentryResolver.ResolveWithFallback(key)
 	if err != nil {
 		return errors.Wrap(err, "failed to resolve src dentry path")
 	}
 	switch evt.EventType {
 	case Link, Rename:
 		targetKey := evt.TargetPathKey()
-		evt.TargetFilename, err = monitor.DentryResolver.Resolve(targetKey)
+		evt.TargetFilename, err = monitor.DentryResolver.ResolveWithFallback(targetKey)
 		if err != nil {
 			return errors.Wrap(err, "failed to resolve target dentry path")
 		}
@@ -239,15 +239,20 @@ func (e *FSEvent) UnmarshalBinary(data []byte, bootTime time.Time) (int, error) 
 	e.Mode = utils.ByteOrder.Uint32(data[44:48])
 	e.SrcPathnameKey = utils.ByteOrder.Uint32(data[48:52])
 	e.TargetPathnameKey = utils.ByteOrder.Uint32(data[52:56])
+	// Accounting for path_key_t alignment to 8-byte boundary
+	// src_key
 	e.SrcInode = utils.ByteOrder.Uint64(data[56:64])
-	e.SrcPathnameLength = utils.ByteOrder.Uint32(data[64:68])
-	e.SrcMountID = utils.ByteOrder.Uint32(data[68:72])
+	e.SrcMountID = utils.ByteOrder.Uint32(data[64:68])
+	// src_key.padding, [68:72], 4 bytes
+	// target_key
 	e.TargetInode = utils.ByteOrder.Uint64(data[72:80])
-	e.TargetPathnameLength = utils.ByteOrder.Uint32(data[80:84])
-	e.TargetMountID = utils.ByteOrder.Uint32(data[84:88])
-	e.Retval = int32(utils.ByteOrder.Uint32(data[88:92]))
-	e.EventType = GetEventType(Event(utils.ByteOrder.Uint32(data[92:96])))
-	return 96, nil
+	e.TargetMountID = utils.ByteOrder.Uint32(data[80:84])
+	// target_key.padding, [84:88], 4 bytes
+	e.SrcPathnameLength = utils.ByteOrder.Uint32(data[88:92])
+	e.TargetPathnameLength = utils.ByteOrder.Uint32(data[92:96])
+	e.Retval = int32(utils.ByteOrder.Uint32(data[96:100]))
+	e.EventType = GetEventType(Event(utils.ByteOrder.Uint32(data[100:104])))
+	return 104, nil
 }
 
 // PrintFilenames - Returns a string representation of the filenames of the event

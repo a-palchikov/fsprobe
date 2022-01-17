@@ -235,11 +235,19 @@ func (r *PathResolver) Resolve(leaf PathKey) (pathname string, err error) {
 
 }
 
-// DelCacheEntry removes an entry from the cache
-func (r *PathResolver) DelCacheEntry(mountID uint32, inode uint64) {
-	if entries, exists := r.cache[mountID]; exists {
-		key := PathKey{inode: inode}
+// DelCacheEntry removes the entry specified with key
+func (r *PathResolver) DelCacheEntry(key PathKey) {
+	if entries, exists := r.cache[key.mountID]; exists {
+		if _, exists := entries.Get(key.inode); exists {
+			// this is also called by the onEvict function of LRU thus releasing the entry from the pool
+			entries.Remove(key.inode)
+		}
+	}
+}
 
+// DelCacheEntryPath removes the path with the specified leaf key
+func (r *PathResolver) DelCacheEntryPath(key PathKey) {
+	if entries, exists := r.cache[key.mountID]; exists {
 		// Delete path recursively
 		for {
 			path, exists := entries.Get(key.inode)
@@ -265,7 +273,7 @@ func (r *PathResolver) DelCacheEntries(mountID uint32) {
 	delete(r.cache, mountID)
 }
 
-// Remove - Removes a pathname from the kernel cache using the provided mount id and inode
+// Remove - Removes a pathname from the kernel cache for the provided key
 func (r *PathResolver) Remove(key PathKey) error {
 	return r.pathnames.Delete(key.MarshalBinary())
 }

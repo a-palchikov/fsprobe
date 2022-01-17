@@ -367,7 +367,8 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 	case model.Unlink, model.Rmdir:
 		matched = r.matches(int(event.SrcMountID), event.SrcFilename)
 		_ = removeCacheEntry(event.SrcPathKey(), monitor)
-	case model.SetAttr:
+	case model.SetAttr, model.Link:
+		// Ignore for now
 	default:
 		logger.Debug("Unhandled event type.")
 	}
@@ -384,6 +385,7 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 func removeCacheEntry(key model.PathKey, m *model.Monitor) error {
 	if !key.HasFakeInode() {
 		zap.L().Debug("Removing cache entry.", zap.String("key", key.String()))
+		m.DentryResolver.DelCacheEntry(key)
 	}
 	return m.DentryResolver.Remove(key)
 }

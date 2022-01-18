@@ -27,6 +27,7 @@ import (
 type Monitor struct {
 	ResolutionModeMaps []string
 	DentryResolver     *PathResolver
+	ProcessResolver    *ProcessResolver
 	FSProbe            FSProbe
 	InodeFilterSection string
 	Name               string
@@ -72,6 +73,7 @@ func (m *Monitor) Configure() {
 	}
 	// Setup dentry resolver
 	m.DentryResolver, _ = NewPathResolver(m)
+	m.ProcessResolver = NewProcessResolver()
 }
 
 // GetName - Returns the name of the monitor
@@ -121,4 +123,21 @@ func (m *Monitor) AddInodeFilter(key PathKey) error {
 		return err
 	}
 	return nil
+}
+
+func (m *Monitor) ResolveProcessInfo(event *FSEvent) {
+	entry := m.ProcessResolver.Resolve(event.Process.Pid, event.Process.Tid)
+	if entry == nil {
+		return
+	}
+	event.Process.Cmdline = entry.Process.Cmdline
+	if entry.ProcessContext.Ancestor != nil {
+		event.parents = append(event.parents, entry.ProcessContext.Ancestor.Process)
+		parent := entry.ProcessContext.Ancestor
+		if parent.ProcessContext.Ancestor != nil {
+			event.parents = append(event.parents, parent.ProcessContext.Ancestor.Process)
+		}
+		// TODO(dima): build the whole tree if necessary, or go
+		// one level up more
+	}
 }

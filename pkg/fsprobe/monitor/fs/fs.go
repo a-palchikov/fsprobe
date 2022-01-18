@@ -378,6 +378,7 @@ func (r *FSEventHandler) Handle(monitor *model.Monitor, event *model.FSEvent) {
 		return
 	}
 
+	monitor.ResolveProcessInfo(event)
 	// Dispatch event
 	monitor.Options.EventChan <- event
 }

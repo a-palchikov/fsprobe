@@ -133,7 +133,7 @@ func ParseFSEvent(data []byte, monitor *Monitor) (*FSEvent, error) {
 func resolvePaths(data []byte, evt *FSEvent, monitor *Monitor, read int) (err error) {
 	logger := zap.L().With(
 		zap.String("type", evt.EventType),
-		zap.String("comm", evt.Comm),
+		zap.String("comm", evt.Process.Comm),
 	)
 	key := evt.SrcPathKey()
 	if key.IsNull() {
@@ -198,11 +198,7 @@ func decodePath(raw []byte) string {
 // FSEvent - Raw event definition
 type FSEvent struct {
 	Timestamp            time.Time `json:"-"`
-	Pid                  uint32    `json:"pid"`
-	Tid                  uint32    `json:"tid"`
-	UID                  uint32    `json:"uid"`
-	GID                  uint32    `json:"gid"`
-	Comm                 string    `json:"comm"`
+	Process              Process   `json:"process"`
 	Flags                uint32    `json:"flags,omitempty"`
 	Mode                 uint32    `json:"mode,omitempty"`
 	SrcInode             uint64    `json:"src_inode,omitempty"`
@@ -217,6 +213,8 @@ type FSEvent struct {
 	TargetMountID        uint32    `json:"target_mount_id,omitempty"`
 	Retval               int32     `json:"retval"`
 	EventType            string    `json:"event_type"`
+
+	parents []Process
 }
 
 func (e FSEvent) IsSuccess() bool {
@@ -229,11 +227,13 @@ func (e *FSEvent) UnmarshalBinary(data []byte, bootTime time.Time) (int, error) 
 	}
 	// Process context data
 	e.Timestamp = bootTime.Add(time.Duration(utils.ByteOrder.Uint64(data[0:8])) * time.Nanosecond)
-	e.Pid = utils.ByteOrder.Uint32(data[8:12])
-	e.Tid = utils.ByteOrder.Uint32(data[12:16])
-	e.UID = utils.ByteOrder.Uint32(data[16:20])
-	e.GID = utils.ByteOrder.Uint32(data[20:24])
-	e.Comm = string(bytes.Trim(data[24:40], "\x00"))
+	e.Process = Process{
+		Pid:  utils.ByteOrder.Uint32(data[8:12]),
+		Tid:  utils.ByteOrder.Uint32(data[12:16]),
+		Uid:  utils.ByteOrder.Uint32(data[16:20]),
+		Gid:  utils.ByteOrder.Uint32(data[20:24]),
+		Comm: string(bytes.Trim(data[24:40], "\x00")),
+	}
 	// File system event data
 	e.Flags = utils.ByteOrder.Uint32(data[40:44])
 	e.Mode = utils.ByteOrder.Uint32(data[44:48])
@@ -305,6 +305,17 @@ func (fs FSEvent) PrintInode() string {
 	return strconv.FormatUint(inode, 10)
 }
 
+func (fs *FSEvent) PrintParentChain() string {
+	var parents []string
+	for _, p := range fs.parents {
+		parents = append(parents, fmt.Sprint("par", p.String()))
+	}
+	if len(parents) == 0 {
+		return "<unknown>"
+	}
+	return strings.Join(parents, ",")
+}
+
 func (fs FSEvent) SrcPathKey() PathKey {
 	inode := fs.SrcInode
 	if fs.SrcPathnameKey != 0 {
@@ -331,7 +342,7 @@ func FieldsForEvent(event *FSEvent) []zap.Field {
 		zap.String("ino", event.PrintInode()),
 		zap.Uint64("tgt_ino", event.TargetInode),
 		zap.Uint32("tgt_key", event.TargetPathnameKey),
-		zap.String("comm", event.Comm),
+		zap.String("comm", event.Process.Comm),
 		zap.Int32("ret", event.Retval),
 		zap.String("flags", event.PrintFlags()),
 	}

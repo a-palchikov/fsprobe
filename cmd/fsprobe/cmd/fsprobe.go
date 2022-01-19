@@ -18,6 +18,7 @@ package cmd
 import (
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -51,7 +52,8 @@ func runFSProbeCmd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to read mountinfo")
 	}
-	options.FSOptions.DataHandler, err = fs.NewFSEventHandler(args, options.FSOptions.Paths, options.FSOptions.Mounts)
+	pathAxes := fs.ResolveMounts([]string{options.FSOptions.Path}, options.FSOptions.Mounts)
+	options.FSOptions.DataHandler, err = fs.NewFSEventHandler(pathAxes)
 	if err != nil {
 		return errors.Wrap(err, "failed to create FS event handler")
 	}
@@ -60,7 +62,7 @@ func runFSProbeCmd(cmd *cobra.Command, args []string) error {
 	probe := fsprobe.NewFSProbeWithOptions(options.FSOptions)
 
 	// 4) Start listening for events
-	if err := probe.Watch(args...); err != nil {
+	if err := probe.Watch(args[0], pathAxes[0]); err != nil {
 		return errors.Wrap(err, "failed to watch the filesystem")
 	}
 
@@ -102,14 +104,15 @@ func initLogging() *zap.Logger {
 
 // sanitizeOptions - Sanitizes the provided options
 func sanitizeOptions(args []string) error {
-	if options.FSOptions.PathsFiltering && len(args) == 0 {
-		return errors.New("paths filtering is activated but no path was provided")
+	if options.FSOptions.Path == "" {
+		return errors.New("path-filter is required")
 	}
-	if len(args) > 0 {
-		options.FSOptions.PathsFiltering = true
+	if len(args) < 0 {
+		return errors.New("base path is required")
 	}
-	if len(options.FSOptions.Paths) > 0 {
-		options.FSOptions.Recursive = false
+	basePath := args[0]
+	if !strings.HasPrefix(options.FSOptions.Path, utils.MaybeAddSlash(basePath)) {
+		return errors.New("path-filter needs to be along the base path")
 	}
 	return nil
 }

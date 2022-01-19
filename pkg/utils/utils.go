@@ -32,6 +32,7 @@ import (
 
 	"github.com/pkg/errors"
 )
+import "path/filepath"
 
 // GetPpid is a fallback to read the parent PID from /proc.
 // Some kernel versions, like 4.13.0 return 0 getting the parent PID
@@ -327,6 +328,16 @@ func parseProcSelfMountinfo(content []byte) ([]MountInfo, error) {
 		out = append(out, mp)
 	}
 	return out, nil
+}
+
+func MaybeAddSlash(path string) string {
+	if len(path) == 0 {
+		return string(filepath.Separator)
+	}
+	if path[len(path)-1] != filepath.Separator {
+		return path + string(filepath.Separator)
+	}
+	return path
 }
 
 const (

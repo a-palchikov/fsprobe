@@ -24,21 +24,24 @@ limitations under the License.
 __attribute__((always_inline)) static int match_src(struct dentry_cache_t *data_cache)
 {
     // Look for the inode in the cached_inodes map
-    if (bpf_map_lookup_elem(&inodes_filter, &data_cache->fs_event.src_inode) == NULL) {
-        //if (data_cache->fs_event.src_mount_id == 253) {
-        //    bpf_printk("filter(src): unmatched on ino=%ld, trying parent.", data_cache->fs_event.src_inode);
-        //}
+    if (bpf_map_lookup_elem(&inodes_filter, &data_cache->fs_event.src_key) == NULL) {
         // Look for the parent inode
         struct dentry *d_parent;
         bpf_probe_read(&d_parent, sizeof(d_parent), &data_cache->src_dentry->d_parent);
         u32 ino = get_dentry_ino(d_parent);
-        if (bpf_map_lookup_elem(&inodes_filter, &ino) == NULL) {
-            //if (data_cache->fs_event.src_mount_id == 253) {
-            //    bpf_printk("filter(src): unmatched on par.ino=%ld.", ino);
-            //}
+        struct path_key_t key = data_cache->fs_event.src_key;
+        key.ino = ino;
+        if (bpf_map_lookup_elem(&inodes_filter, &key) == NULL) {
             return 0;
+        } else {
+#ifdef DEBUG_FILTER
+            bpf_printk("filter(src): matched on par.ino=%ld.", ino);
+#endif
         }
     }
+#ifdef DEBUG_FILTER
+    bpf_printk("filter(src): matched on ino=%ld.", data_cache->fs_event.src_key.ino);
+#endif
     return 1;
 }
 
@@ -47,15 +50,24 @@ __attribute__((always_inline)) static int match_src(struct dentry_cache_t *data_
 __attribute__((always_inline)) static int match_target(struct dentry_cache_t *data_cache)
 {
     // Look for the inode in the cached_inodes map
-    if (bpf_map_lookup_elem(&inodes_filter, &data_cache->fs_event.target_inode) == NULL) {
+    if (bpf_map_lookup_elem(&inodes_filter, &data_cache->fs_event.target_key) == NULL) {
         // Look for the parent inode
         struct dentry *d_parent;
         bpf_probe_read(&d_parent, sizeof(d_parent), &data_cache->target_dentry->d_parent);
         u32 ino = get_dentry_ino(d_parent);
-        if (bpf_map_lookup_elem(&inodes_filter, &ino) == NULL) {
+        struct path_key_t key = data_cache->fs_event.target_key;
+        key.ino = ino;
+        if (bpf_map_lookup_elem(&inodes_filter, &key) == NULL) {
             return 0;
+        } else {
+#ifdef DEBUG_FILTER
+            bpf_printk("filter(tgt): matched on par.ino=%ld.", ino);
+#endif
         }
     }
+#ifdef DEBUG_FILTER
+    bpf_printk("filter(tgt): matched on ino=%ld.", data_cache->fs_event.target_key.ino);
+#endif
     return 1;
 }
 

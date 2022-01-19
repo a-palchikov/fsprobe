@@ -17,7 +17,7 @@ func TestResolvesPaths(t *testing.T) {
 		comment  string
 		mounts   []utils.MountInfo
 		paths    []string
-		expected []resolvedPath
+		expected []ResolvedPath
 	}{
 		{
 			comment: "selects the most specific mount point",
@@ -40,7 +40,7 @@ func TestResolvesPaths(t *testing.T) {
 				},
 			},
 			paths: []string{"/path/to/dir/subdir/dir2/file"},
-			expected: []resolvedPath{
+			expected: []ResolvedPath{
 				{
 					path: "/path/to/dir/subdir/dir2/file",
 					mi: utils.MountInfo{
@@ -60,7 +60,7 @@ func TestResolvesPaths(t *testing.T) {
 				},
 			},
 			paths: []string{"/path/to/dir2", "/path/to/file2"},
-			expected: []resolvedPath{
+			expected: []ResolvedPath{
 				{
 					mi:   rootMount,
 					path: "/path/to/dir2",
@@ -81,7 +81,7 @@ func TestResolvesPaths(t *testing.T) {
 				},
 			},
 			paths: []string{"/path/to/dir", "/path/to/dir2"},
-			expected: []resolvedPath{
+			expected: []ResolvedPath{
 				{
 					mi:   rootMount,
 					path: "/path/to/dir2",
@@ -101,7 +101,7 @@ func TestResolvesPaths(t *testing.T) {
 				rootMount,
 			},
 			paths: []string{"/path/to/dir"},
-			expected: []resolvedPath{
+			expected: []ResolvedPath{
 				{
 					mi:   rootMount,
 					path: "/path/to/dir",
@@ -111,7 +111,7 @@ func TestResolvesPaths(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.comment, func(t *testing.T) {
-			paths := resolveMounts(tc.paths, asMap(tc.mounts))
+			paths := ResolveMounts(tc.paths, asMap(tc.mounts))
 			require.ElementsMatch(t, tc.expected, paths)
 		})
 	}
@@ -126,7 +126,7 @@ func TestCanMatchFromResolvedPaths(t *testing.T) {
 		MountID:    2,
 		MountPoint: "/mount/point",
 	}
-	paths := []resolvedPath{
+	paths := []ResolvedPath{
 		{
 			mi:   rootMount,
 			path: "/path/to/watch",

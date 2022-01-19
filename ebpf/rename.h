@@ -54,10 +54,8 @@ int __attribute__((always_inline)) trace__sys_rename_ret(struct pt_regs *ctx) {
     data_cache->fs_event.retval = ret;
     data_cache->fs_event.event = EVENT_RENAME;
     // Store the inode/mount ID tuples for the base path
-    data_cache->fs_event.src_inode = syscall->rename.src_file.path_key.ino;
-    data_cache->fs_event.src_mount_id = syscall->rename.src_file.path_key.mount_id;
-    data_cache->fs_event.target_mount_id = syscall->rename.target_file.path_key.mount_id;
-    data_cache->fs_event.target_inode = syscall->rename.target_file.path_key.ino;
+    data_cache->fs_event.src_key = syscall->rename.src_file.path_key;
+    data_cache->fs_event.target_key = syscall->rename.target_file.path_key;
 
     struct dentry *src_dentry;
     bpf_probe_read(&src_dentry, sizeof(struct dentry *), &syscall->rename.src_dentry);
@@ -73,11 +71,11 @@ int __attribute__((always_inline)) trace__sys_rename_ret(struct pt_regs *ctx) {
 #ifdef DEBUG
     bpf_printk("do_renameat2_x: ret=%d.", data_cache->fs_event.retval);
     bpf_printk("do_renameat2_x: src(ino=%ld/mnt_id=%d).",
-               data_cache->fs_event.src_inode,
-               data_cache->fs_event.src_mount_id);
+               data_cache->fs_event.src_key.ino,
+               data_cache->fs_event.src_key.mount_id);
     bpf_printk("do_renameat2_x: tgt(ino=%ld/mnt_id=%d).",
-               data_cache->fs_event.target_inode,
-               data_cache->fs_event.target_mount_id);
+               data_cache->fs_event.target_key.ino,
+               data_cache->fs_event.target_key.mount_id);
 #endif
 
     data_cache->pathname = syscall->rename.src_pathname;
@@ -106,11 +104,11 @@ __attribute__((always_inline)) static int trace_rename(struct pt_regs *ctx, stru
 
     u64 key = fill_process_data(&data_cache->fs_event.process_data);
     data_cache->fs_event.event = EVENT_RENAME;
-    data_cache->fs_event.src_inode = get_dentry_ino(old_dentry);
+    data_cache->fs_event.src_key.ino = get_dentry_ino(old_dentry);
+    // Add old mount ID
+    data_cache->fs_event.src_key.mount_id = syscall->rename.src_file.path_key.mount_id;
     // Generate a fake key for the old inode as the inode will be reused
     data_cache->fs_event.src_path_key = new_fake_inode();
-    // Add old mount ID
-    data_cache->fs_event.src_mount_id = syscall->rename.src_file.path_key.mount_id;
 
     syscall->rename.src_dentry = old_dentry;
     syscall->rename.target_dentry = new_dentry;
@@ -141,18 +139,18 @@ __attribute__((always_inline)) static int trace_rename_ret(struct pt_regs *ctx)
         return 0;
 
     data_cache->fs_event.retval = PT_REGS_RC(ctx);
-    data_cache->fs_event.target_inode = get_dentry_ino(syscall->rename.src_dentry);
-    data_cache->fs_event.target_mount_id = syscall->rename.target_file.path_key.mount_id;
+    data_cache->fs_event.target_key.ino = get_dentry_ino(syscall->rename.src_dentry);
+    data_cache->fs_event.target_key.mount_id = syscall->rename.target_file.path_key.mount_id;
 
 #ifdef DEBUG
     bpf_printk("vfs_rename_x: ret=%d", data_cache->fs_event.retval);
     bpf_printk("vfs_rename_x: src(key=%ld/ino=%ld/mnt_id=%d)",
                data_cache->fs_event.src_path_key,
-               data_cache->fs_event.src_inode,
-               data_cache->fs_event.src_mount_id);
+               data_cache->fs_event.src_key.ino,
+               data_cache->fs_event.src_key.mount_id);
     bpf_printk("vfs_rename_x: tgt(ino=%ld/mnt_id=%d)",
-               data_cache->fs_event.target_inode,
-               data_cache->fs_event.target_mount_id);
+               data_cache->fs_event.target_key.ino,
+               data_cache->fs_event.target_key.mount_id);
 #endif
 
     resolve_paths(ctx, data_cache, RESOLVE_TARGET | EMIT_EVENT);
@@ -161,7 +159,7 @@ __attribute__((always_inline)) static int trace_rename_ret(struct pt_regs *ctx)
     u64 follow_mode = load_follow_mode();
     if (follow_mode) {
         u8 value = 0;
-        bpf_map_update_elem(&inodes_filter, &data_cache->fs_event.target_inode, &value, BPF_ANY);
+        bpf_map_update_elem(&inodes_filter, &data_cache->fs_event.target_key, &value, BPF_ANY);
     }
 
     bpf_map_delete_elem(&dentry_cache, &key);

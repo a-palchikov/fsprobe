@@ -145,7 +145,7 @@ type TableOutput struct {
 func NewTableOutput(writer io.Writer) TableOutput {
 	out := TableOutput{
 		output: writer,
-		fmt:    "%7v %7v %6v %6v %6v %6v %16v %6v %7v %6v %6v %16v %s\n",
+		fmt:    "%7v %7v %6v %6v %6v %6v %16v %6v %7v %6v %6v %16v %s %s %s\n",
 		tsFmt:  "15:04:05.000000000",
 	}
 	out.PrintHeader()
@@ -158,24 +158,26 @@ func (to TableOutput) Write(event *model.FSEvent) error {
 		to.fmt,
 		event.EventType,
 		event.Timestamp.Format(to.tsFmt),
-		event.Pid,
-		event.Tid,
-		event.UID,
-		event.GID,
-		event.Comm,
+		event.Process.Pid,
+		event.Process.Tid,
+		event.Process.Uid,
+		event.Process.Gid,
+		event.Process.Comm,
 		event.PrintInode(),
 		event.SrcMountID,
 		event.PrintMode(),
 		event.PrintFlags(),
 		event.PrintFilenames(),
 		model.ErrValueToString(event.Retval),
+		event.Process.Cmdline,
+		event.PrintParentChain(),
 	)
 	return nil
 }
 
 // PrintHeader - Prints table header
 func (to TableOutput) PrintHeader() {
-	fmt.Printf(to.fmt, "EVT", "TS", "PID", "TID", "UID", "GID", "CMD", "INODE", "MOUNTID", "RET", "MODE", "FLAG", "PATH")
+	fmt.Printf(to.fmt, "EVT", "TS", "PID", "TID", "UID", "GID", "NAME", "INODE", "MOUNTID", "MODE", "FLAG", "PATH", "RET", "CMD", "PARENTS")
 }
 
 // DummyOutput - Dummy output for the none format

@@ -133,21 +133,21 @@ func ParseFSEvent(data []byte, monitor *Monitor) (*FSEvent, error) {
 func resolvePaths(data []byte, evt *FSEvent, monitor *Monitor, read int) (err error) {
 	logger := zap.L().With(
 		zap.String("type", evt.EventType),
-		zap.String("comm", evt.Comm),
+		zap.String("comm", evt.Process.Comm),
 	)
 	key := evt.SrcPathKey()
 	if key.IsNull() {
 		logger.Debug("Invalid mountID/inode tuple.")
 		return nil
 	}
-	evt.SrcFilename, err = monitor.DentryResolver.Resolve(key)
+	evt.SrcFilename, err = monitor.DentryResolver.ResolveWithFallback(key)
 	if err != nil {
 		return errors.Wrap(err, "failed to resolve src dentry path")
 	}
 	switch evt.EventType {
 	case Link, Rename:
 		targetKey := evt.TargetPathKey()
-		evt.TargetFilename, err = monitor.DentryResolver.Resolve(targetKey)
+		evt.TargetFilename, err = monitor.DentryResolver.ResolveWithFallback(targetKey)
 		if err != nil {
 			return errors.Wrap(err, "failed to resolve target dentry path")
 		}
@@ -198,11 +198,7 @@ func decodePath(raw []byte) string {
 // FSEvent - Raw event definition
 type FSEvent struct {
 	Timestamp            time.Time `json:"-"`
-	Pid                  uint32    `json:"pid"`
-	Tid                  uint32    `json:"tid"`
-	UID                  uint32    `json:"uid"`
-	GID                  uint32    `json:"gid"`
-	Comm                 string    `json:"comm"`
+	Process              Process   `json:"process"`
 	Flags                uint32    `json:"flags,omitempty"`
 	Mode                 uint32    `json:"mode,omitempty"`
 	SrcInode             uint64    `json:"src_inode,omitempty"`
@@ -217,6 +213,8 @@ type FSEvent struct {
 	TargetMountID        uint32    `json:"target_mount_id,omitempty"`
 	Retval               int32     `json:"retval"`
 	EventType            string    `json:"event_type"`
+
+	parents []Process
 }
 
 func (e FSEvent) IsSuccess() bool {
@@ -229,25 +227,32 @@ func (e *FSEvent) UnmarshalBinary(data []byte, bootTime time.Time) (int, error) 
 	}
 	// Process context data
 	e.Timestamp = bootTime.Add(time.Duration(utils.ByteOrder.Uint64(data[0:8])) * time.Nanosecond)
-	e.Pid = utils.ByteOrder.Uint32(data[8:12])
-	e.Tid = utils.ByteOrder.Uint32(data[12:16])
-	e.UID = utils.ByteOrder.Uint32(data[16:20])
-	e.GID = utils.ByteOrder.Uint32(data[20:24])
-	e.Comm = string(bytes.Trim(data[24:40], "\x00"))
+	e.Process = Process{
+		Pid:  utils.ByteOrder.Uint32(data[8:12]),
+		Tid:  utils.ByteOrder.Uint32(data[12:16]),
+		Uid:  utils.ByteOrder.Uint32(data[16:20]),
+		Gid:  utils.ByteOrder.Uint32(data[20:24]),
+		Comm: string(bytes.Trim(data[24:40], "\x00")),
+	}
 	// File system event data
 	e.Flags = utils.ByteOrder.Uint32(data[40:44])
 	e.Mode = utils.ByteOrder.Uint32(data[44:48])
 	e.SrcPathnameKey = utils.ByteOrder.Uint32(data[48:52])
 	e.TargetPathnameKey = utils.ByteOrder.Uint32(data[52:56])
+	// Accounting for path_key_t alignment to 8-byte boundary
+	// src_key
 	e.SrcInode = utils.ByteOrder.Uint64(data[56:64])
-	e.SrcPathnameLength = utils.ByteOrder.Uint32(data[64:68])
-	e.SrcMountID = utils.ByteOrder.Uint32(data[68:72])
+	e.SrcMountID = utils.ByteOrder.Uint32(data[64:68])
+	// src_key.padding, [68:72], 4 bytes
+	// target_key
 	e.TargetInode = utils.ByteOrder.Uint64(data[72:80])
-	e.TargetPathnameLength = utils.ByteOrder.Uint32(data[80:84])
-	e.TargetMountID = utils.ByteOrder.Uint32(data[84:88])
-	e.Retval = int32(utils.ByteOrder.Uint32(data[88:92]))
-	e.EventType = GetEventType(Event(utils.ByteOrder.Uint32(data[92:96])))
-	return 96, nil
+	e.TargetMountID = utils.ByteOrder.Uint32(data[80:84])
+	// target_key.padding, [84:88], 4 bytes
+	e.SrcPathnameLength = utils.ByteOrder.Uint32(data[88:92])
+	e.TargetPathnameLength = utils.ByteOrder.Uint32(data[92:96])
+	e.Retval = int32(utils.ByteOrder.Uint32(data[96:100]))
+	e.EventType = GetEventType(Event(utils.ByteOrder.Uint32(data[100:104])))
+	return 104, nil
 }
 
 // PrintFilenames - Returns a string representation of the filenames of the event
@@ -300,6 +305,17 @@ func (fs FSEvent) PrintInode() string {
 	return strconv.FormatUint(inode, 10)
 }
 
+func (fs *FSEvent) PrintParentChain() string {
+	var parents []string
+	for _, p := range fs.parents {
+		parents = append(parents, fmt.Sprint("par", p.String()))
+	}
+	if len(parents) == 0 {
+		return "<unknown>"
+	}
+	return strings.Join(parents, ",")
+}
+
 func (fs FSEvent) SrcPathKey() PathKey {
 	inode := fs.SrcInode
 	if fs.SrcPathnameKey != 0 {
@@ -326,7 +342,7 @@ func FieldsForEvent(event *FSEvent) []zap.Field {
 		zap.String("ino", event.PrintInode()),
 		zap.Uint64("tgt_ino", event.TargetInode),
 		zap.Uint32("tgt_key", event.TargetPathnameKey),
-		zap.String("comm", event.Comm),
+		zap.String("comm", event.Process.Comm),
 		zap.Int32("ret", event.Retval),
 		zap.String("flags", event.PrintFlags()),
 	}

@@ -314,11 +314,9 @@ __attribute__((always_inline)) static void embed_pathname(struct path_key_t *bas
     bpf_map_update_elem(&path_fragments, &key, value, BPF_ANY);
     // Override the path key for pathname
     if ((flag & RESOLVE_SRC) == RESOLVE_SRC) {
-        cache->fs_event.src_inode=key.ino;
-        cache->fs_event.src_mount_id=key.mount_id;
+        cache->fs_event.src_key = key;
     } else {
-        cache->fs_event.target_inode=key.ino;
-        cache->fs_event.target_mount_id=key.mount_id;
+        cache->fs_event.target_key = key;
     }
 }
 
@@ -334,22 +332,19 @@ __attribute__((always_inline)) static int resolve_paths(void *ctx, struct dentry
         if (cache->fs_event.event == EVENT_RENAME || cache->fs_event.event == EVENT_LINK) {
             key.ino = cache->fs_event.src_path_key;
         } else {
-            key.ino = cache->fs_event.src_inode;
+            key.ino = cache->fs_event.src_key.ino;
         }
-        key.mount_id = cache->fs_event.src_mount_id;
+        key.mount_id = cache->fs_event.src_key.mount_id;
         if (cache->pathname) {
             embed_pathname(&key, cache, flag&RESOLVE_SRC);
         }
         resolve_dentry_fragments(cache->src_dentry, &key);
     }
     if ((flag & RESOLVE_TARGET) == RESOLVE_TARGET) {
-        key.ino = cache->fs_event.target_inode;
-        key.mount_id = cache->fs_event.target_mount_id;
+        key = cache->fs_event.target_key;
         if (cache->fs_event.event == EVENT_RENAME || cache->fs_event.event == EVENT_LINK) {
             // Make sure to resolve the new inode regardless of the cache
             bpf_map_delete_elem(&path_fragments, &key);
-            //bpf_printk("resolve_paths: remove entry for ino=%ld/mnt_id=%d",
-            //           key.ino, key.mount_id);
         }
         if (cache->target_pathname) {
             embed_pathname(&key, cache, flag&RESOLVE_TARGET);

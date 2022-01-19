@@ -27,8 +27,6 @@ var (
 	InodeFilteringModeConst = "inode_filtering_mode"
 	// FollowModeConst - In-kernel configuration constant
 	FollowModeConst = "follow_mode"
-	// RecursiveModeConst - In-kernel configuration constant
-	RecursiveModeConst = "recursive_mode"
 )
 
 // DentryResolutionMode - Mode of resolution of the kernel dentries

@@ -37,6 +37,7 @@ import (
 	"github.com/Gui774ume/ebpf"
 	"github.com/Gui774ume/fsprobe/pkg/assets"
 	"github.com/Gui774ume/fsprobe/pkg/fsprobe/monitor"
+	"github.com/Gui774ume/fsprobe/pkg/fsprobe/monitor/fs"
 	"github.com/Gui774ume/fsprobe/pkg/model"
 	"github.com/Gui774ume/fsprobe/pkg/utils"
 )
@@ -96,7 +97,7 @@ func (fsp *FSProbe) GetHostPidns() uint64 {
 
 // Watch - start watching the provided paths. This function is thread safe and can be called multiple times. If
 // already running, the new paths will be added dynamically.
-func (fsp *FSProbe) Watch(paths ...string) error {
+func (fsp *FSProbe) Watch(basePath string, pathAxis fs.ResolvedPath) error {
 	// 1) Check if FSProbe is already running
 	fsp.runningMutex.RLock()
 	if fsp.running {
@@ -111,11 +112,9 @@ func (fsp *FSProbe) Watch(paths ...string) error {
 		fsp.running = true
 		fsp.runningMutex.Unlock()
 	}
-	// 2) Add watches for the provided paths
-	if len(paths) != 0 {
-		if err := fsp.addWatch(paths...); err != nil {
-			return err
-		}
+	// 2) Add watches for the provided base path
+	if err := fsp.addWatch(basePath, pathAxis); err != nil {
+		return err
 	}
 	return nil
 }
@@ -222,105 +221,73 @@ func (fsp *FSProbe) startMonitors() error {
 }
 
 // addWatch - Updates the eBPF hashmaps to look for the provided paths
-func (fsp *FSProbe) addWatch(paths ...string) error {
+func (fsp *FSProbe) addWatch(basePath string, pathAxis fs.ResolvedPath) error {
 	// Add paths to the list of watched paths
 	fsp.runningMutex.Lock()
 	fsp.runningMutex.Unlock()
-	if fsp.options.Recursive {
-		// Watch all directories provided in paths recursively
-		return fsp.addRecursiveWatch(paths...)
-	}
-	if len(fsp.options.Paths) == 0 {
-		// Watch the top level directories
-		return fsp.addTopLevelWatch(paths...)
-	}
-	return fsp.addFilteredWatch(paths[0])
+	return fsp.addFilteredWatch(basePath, pathAxis)
 }
 
-func (fsp *FSProbe) addFilteredWatch(path string) error {
-	// For simplicity, also assume len(options.Paths) == 1
-	pathFilter := fsp.options.Paths[0]
-	list := strings.Split(pathFilter[len(path):], string(filepath.Separator))
+func (fsp *FSProbe) addFilteredWatch(basePath string, pathAxis fs.ResolvedPath) error {
+	list := strings.Split(pathAxis.Path()[len(basePath):], string(filepath.Separator))
 	for _, d := range list {
-		path = filepath.Join(path, d)
-		fsp.addTopLevelWatch(path)
+		basePath = filepath.Join(basePath, d)
+		fsp.addTopLevelWatch(basePath, pathAxis)
 	}
 	return nil
 }
 
 // addTopLevelWatch - Adds watches by walking only the top level depth of directories
-func (fsp *FSProbe) addTopLevelWatch(paths ...string) error {
-	for _, path := range paths {
-		// Check if the path is a directory
-		fi, err := os.Lstat(path)
-		if err != nil && !os.IsNotExist(err) {
-			return errors.Wrapf(err, "failed to stat %s", path)
+func (fsp *FSProbe) addTopLevelWatch(path string, pathAxis fs.ResolvedPath) error {
+	// Check if the path is a directory
+	fi, err := os.Lstat(path)
+	if err != nil && !os.IsNotExist(err) {
+		return errors.Wrapf(err, "failed to stat %s", path)
+	}
+	if fi == nil {
+		zap.L().Debug("Skip non-existing path.", zap.String("path", path))
+		return nil
+	}
+	if fi.IsDir() {
+		// List the top level of the directory
+		files, err := ioutil.ReadDir(path)
+		if err != nil {
+			return errors.WithStack(err)
 		}
-		if fi == nil {
-			zap.L().Debug("Skip non-existing path.", zap.String("path", path))
-			continue
-		}
-		if fi.IsDir() {
-			// List the top level of the directory
-			files, err := ioutil.ReadDir(path)
-			if err != nil {
-				return errors.WithStack(err)
-			}
-			for _, f := range files {
-				fullPath := filepath.Join(path, f.Name())
-				stat, ok := f.Sys().(*syscall.Stat_t)
-				if !ok {
-					continue
-				}
-				if f.IsDir() {
-					// Add inode in cache
-					fsp.watchInode(uint32(stat.Ino), fullPath)
-					zap.L().Debug("Set up watch.", zap.String("path", fullPath), zap.Uint32("ino", uint32(stat.Ino)))
-				}
-			}
-			// Add the directory itself to the list of watched files
-			stat, ok := fi.Sys().(*syscall.Stat_t)
+		for _, f := range files {
+			fullPath := filepath.Join(path, f.Name())
+			stat, ok := f.Sys().(*syscall.Stat_t)
 			if !ok {
 				continue
 			}
-			zap.L().Debug("Set up watch.", zap.String("path", path), zap.Uint32("ino", uint32(stat.Ino)))
-			fsp.watchInode(uint32(stat.Ino), path)
-
-		}
-	}
-	return nil
-}
-
-// addRecursiveWatch - Adds watches by walking through all the provided paths recursively
-func (fsp *FSProbe) addRecursiveWatch(paths ...string) error {
-	var err error
-	for _, path := range paths {
-		err = filepath.Walk(path, func(walkPath string, fi os.FileInfo, err error) error {
-			if err != nil {
-				zap.L().Warn("Failed to add watch.", zap.String("path", walkPath), zap.Error(err))
-				return nil
+			if f.IsDir() {
+				key := model.NewPathKey(stat.Ino, uint32(pathAxis.MountID()))
+				logger := zap.L().With(zap.String("path", fullPath), zap.String("key", key.String()))
+				// Add inode in cache
+				fsp.watchInode(key, fullPath, logger)
+				logger.Debug("Set up watch.")
 			}
-			stat, ok := fi.Sys().(*syscall.Stat_t)
-			if !ok {
-				return nil
-			}
-			// Add inode in cache
-			fsp.watchInode(uint32(stat.Ino), walkPath)
-			return nil
-		})
-		if err != nil {
-			return err
 		}
+		// Add the directory itself to the list of watched files
+		stat, ok := fi.Sys().(*syscall.Stat_t)
+		if !ok {
+			return errors.Errorf("unable to stat file at %s", path)
+		}
+		key := model.NewPathKey(stat.Ino, uint32(pathAxis.MountID()))
+		logger := zap.L().With(zap.String("path", path), zap.String("key", key.String()))
+		logger.Debug("Set up watch.")
+		fsp.watchInode(key, path, logger)
+
 	}
 	return nil
 }
 
 // watchInode - Adds an inode the in the resolver cache
-func (fsp *FSProbe) watchInode(inode uint32, path string) {
+func (fsp *FSProbe) watchInode(key model.PathKey, path string, logger *zap.Logger) {
 	for _, m := range fsp.monitors {
 		// Add inode filter
-		if err := m.AddInodeFilter(inode, path); err != nil {
-			zap.L().Warn("Failed to watch inode.", zap.Uint32("ino", inode), zap.String("path", path), zap.Error(err))
+		if err := m.AddInodeFilter(key); err != nil {
+			logger.Warn("Failed to watch inode.", zap.Error(err))
 			continue
 		}
 	}
@@ -345,15 +312,9 @@ func (fsp *FSProbe) EditEBPFConstants(spec *ebpf.CollectionSpec) error {
 					var value uint64
 					switch constant {
 					case model.InodeFilteringModeConst:
-						if fsp.options.PathsFiltering {
-							value = 1
-						}
+						value = 1
 					case model.FollowModeConst:
 						if fsp.options.FollowRenames {
-							value = 1
-						}
-					case model.RecursiveModeConst:
-						if fsp.options.Recursive {
 							value = 1
 						}
 					default:

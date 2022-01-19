@@ -4,9 +4,9 @@
 #include "bpf/bpf_helpers.h"
 
 //#define DEBUG 1
-#define DEBUG_OPEN
-#define DEBUG_MKDIR
-#define DEBUG_FILTER
+//#define DEBUG_OPEN
+//#define DEBUG_MKDIR
+//#define DEBUG_FILTER
 
 #define LOAD_CONSTANT(param, var) asm("%0 = " param " ll" : "=r"(var))
 

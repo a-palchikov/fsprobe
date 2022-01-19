@@ -1,5 +1,6 @@
 //go:build linux
 
+// Based on https://github.com/DataDog/datadog-agent/blob/691c4c9574b7172458204070bb70ce3c489c4cfd/pkg/security/probe/process_resolver.go
 package model
 
 import (
@@ -127,47 +128,6 @@ func (r *ProcessResolver) syncCache(proc Process) (entry *processCacheEntry, ins
 	return entry, true
 }
 
-//// enrichEventFromProc uses /proc to enrich a ProcessCacheEntry with additional metadata
-//func (r *ProcessResolver) enrichEventFromProc(entry *processCacheEntry, proc *Process) error {
-//	filledProc := getFilledProcess(proc)
-//	if filledProc == nil {
-//		return errors.Errorf("snapshot failed for %d: binary was deleted", proc.Pid)
-//	}
-//
-//	pid := uint32(proc.Pid)
-//
-//	// Get process filename and pre-fill the cache
-//	procExecPath := procExePath(proc.Pid)
-//	pathnameStr, err := os.Readlink(procExecPath)
-//	if err != nil {
-//		return errors.Wrapf(err, "snapshot failed for %d: couldn't readlink binary", proc.Pid)
-//	}
-//	if pathnameStr == "/ (deleted)" {
-//		return errors.Errorf("snapshot failed for %d: binary was deleted", proc.Pid)
-//	}
-//
-//	entry.Process.Pathname = pathnameStr
-//	entry.Process.Basename = path.Base(pathnameStr)
-//
-//	entry.Comm = filledProc.Name
-//	entry.PPid = uint32(filledProc.Ppid)
-//	entry.ProcessContext.Pid = pid
-//	entry.ProcessContext.Tid = pid
-//
-//	//if len(filledProc.Cmdline) > 0 {
-//	//	entry.ArgsEntry = &model.ArgsEntry{
-//	//		Values: filledProc.Cmdline[1:],
-//	//	}
-//	//}
-//	//if envs, err := utils.EnvVars(proc.Pid); err == nil {
-//	//	entry.EnvsEntry = &model.EnvsEntry{
-//	//		Values: envs,
-//	//	}
-//	//}
-//
-//	return nil
-//}
-
 func (r *ProcessResolver) insertEntry(pid uint32, entry, prev *processCacheEntry) *processCacheEntry {
 	r.entryCache[pid] = entry
 	entry.Retain()
@@ -178,18 +138,6 @@ func (r *ProcessResolver) insertEntry(pid uint32, entry, prev *processCacheEntry
 
 	return entry
 }
-
-//func (r *ProcessResolver) deleteEntry(pid uint32, exitTime time.Time) {
-//	// Start by updating the exit timestamp of the pid cache entry
-//	entry, ok := r.entryCache[pid]
-//	if !ok {
-//		return
-//	}
-//	//entry.Exit(exitTime)
-//
-//	delete(r.entryCache, entry.Pid)
-//	entry.Release()
-//}
 
 func (r *ProcessResolver) newProcessCacheEntry() *processCacheEntry {
 	return r.processCacheEntryPool.Get()

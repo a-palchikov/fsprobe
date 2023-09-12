@@ -1,34 +1,40 @@
-FROM golang:1.18-rc-buster AS builder
+# syntax=docker/dockerfile:1.5
 
 ARG CLANG_VER
 ARG KERNEL_VER
-RUN DEBIAN_RELEASE=stretch DEBIAN_FRONTEND=noninteractive && \
-    set -ex && \
-    apt-get -qq update && \
-    apt-get -y install \
+FROM golang:buster AS builder
+ARG KERNEL_VER
+ARG CLANG_VER
+ENV DEBIAN_FRONTEND noninteractive
+SHELL ["/bin/bash", "-xeo", "pipefail", "-c"]
+RUN <<eof
+    apt-get -qq update
+    apt-get install --yes --no-install-recommends \
+        ca-certificates \
         software-properties-common \
         bpfcc-tools \
         libelf-dev \
         zlib1g-dev \
         linux-headers-${KERNEL_VER}
-# Install clang
-RUN set -ex && \
-    wget -O /tmp/llvm.sh https://apt.llvm.org/llvm.sh && \
-    chmod +x /tmp/llvm.sh && \
-    /tmp/llvm.sh ${CLANG_VER} && \
-    rm /tmp/llvm.sh
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+eof
+
+RUN <<eof
+    wget -O - https://apt.llvm.org/llvm.sh | bash -ex /dev/stdin ${CLANG_VER}
+eof
 
 ARG BUILD_LFLAGS
 FROM builder AS go-builder
 WORKDIR /go/src/github.com/Gui774ume/fsprobe
 COPY . .
 RUN --mount=target=/root/.cache,type=cache \
-    --mount=target=/go/pkg/mod,type=cache \
-    set -ex && \
+    --mount=target=/go/pkg/mod,type=cache <<eof
     make build \
         OUTPUT=/output \
         BUILDDIR=/_build \
-	BUILD_LFLAGS="${BUILD_LFLAGS} -X 'github.com/Gui774ume/fsprobe/version.BuildGoVersion=$(go env GOVERSION)'"
+        BUILD_LFLAGS="${BUILD_LFLAGS} -X 'github.com/Gui774ume/fsprobe/version.BuildGoVersion=$(go env GOVERSION)'"
+eof
 
 FROM go-builder AS shell
 RUN DEBIAN_FRONTEND=noninteractive && \

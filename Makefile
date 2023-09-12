@@ -7,9 +7,9 @@ BUILDDIR ?= $(CURRENTDIR)/$(OUTPUTDIR)
 BPF_BUILDDIR := pkg/assets/ebpf/bytecode
 GO ?= go
 DOCKER ?= docker
-CLANG_VER ?= 13
+CLANG_VER ?= 17
 KERNEL_ARCH := amd64
-KERNEL_VER ?= 4.19.0-18-$(KERNEL_ARCH)
+KERNEL_VER ?= 4.19.0-25-$(KERNEL_ARCH)
 
 BUILD_LFLAGS ?=
 BUILD_GO_VERSION ?= $(shell go version)
@@ -43,7 +43,7 @@ DOCKERCONTEXT_PATH = .
 export DOCKERFILE_PATH DOCKERCONTEXT_PATH OUTPUTDIR
 
 .PHONY: all
-all: | $(BUILDDIR)
+all: Dockerfile | $(BUILDDIR)
 	@TARGET=releaser hack/build \
 		$(DOCKER_BUILD_ARGS)
 
